@@ -1,0 +1,88 @@
+name: CD - Deploy to Local Minikube
+
+on:
+  workflow_run:
+    workflows: ["CI - Build & Push"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NAMESPACE: opc-monitor
+
+jobs:
+  deploy:
+    name: Deploy to Local Minikube
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check environment
+        shell: pwsh
+        run: |
+          Write-Host "=== Docker ==="
+          docker --version
+          Write-Host "=== kubectl ==="
+          kubectl version --client
+          Write-Host "=== Minikube ==="
+          minikube status
+
+      - name: Start Minikube if needed
+        shell: pwsh
+        run: |
+          $status = minikube status --format='{{.Host}}' 2>$null
+          if ($status -ne 'Running') {
+            Write-Host "Запуск Minikube..."
+            minikube start
+          } else {
+            Write-Host "Minikube уже запущен"
+          }
+          kubectl config use-context minikube
+
+      - name: Log in to GHCR
+        shell: pwsh
+        run: |
+          $token = "${{ secrets.GITHUB_TOKEN }}"
+          $token | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull and load image
+        shell: pwsh
+        run: |
+          $sha = "${{ github.event.workflow_run.head_sha }}"
+          if (-not $sha) { $sha = "${{ github.sha }}" }
+          $shortSha = $sha.Substring(0, 7)
+          $image = "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$shortSha"
+          Write-Host "Pulling: $image"
+          docker pull $image
+          Write-Host "Loading into Minikube..."
+          minikube image load $image
+
+      - name: Deploy
+        shell: pwsh
+        run: |
+          $sha = "${{ github.event.workflow_run.head_sha }}"
+          if (-not $sha) { $sha = "${{ github.sha }}" }
+          $shortSha = $sha.Substring(0, 7)
+          $image = "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$shortSha"
+          
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          
+          kubectl set image deployment/web web=$image -n ${{ env.NAMESPACE }}
+          kubectl set image deployment/client client=$image -n ${{ env.NAMESPACE }}
+          kubectl set image deployment/server server=$image -n ${{ env.NAMESPACE }}
+          
+          kubectl rollout status deployment/web -n ${{ env.NAMESPACE }} --timeout=2m
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          Write-Host "## ✅ Deploy Complete" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "**Pods:**" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host '```' >> $env:GITHUB_STEP_SUMMARY
+          kubectl get pods -n ${{ env.NAMESPACE }} >> $env:GITHUB_STEP_SUMMARY
+          Write-Host '```' >> $env:GITHUB_STEP_SUMMARY
