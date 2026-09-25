@@ -1,0 +1,101 @@
+﻿{{- if .Values.web.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: web
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: web
+  ports:
+    - name: web
+      port: {{ .Values.web.service.port }}
+      targetPort: 5000
+    - name: metrics
+      port: {{ .Values.web.service.metricsPort }}
+      targetPort: 8001
+  type: {{ .Values.web.service.type }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: web
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: web
+          image: {{ include "opc-monitor.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["gunicorn", "-k", "gthread", "-w", "2", "web_app:app", "-b", "0.0.0.0:5000"]
+          ports:
+            - containerPort: 5000
+              name: web
+            - containerPort: 8001
+              name: metrics
+          env:
+            - name: TZ
+              value: {{ .Values.global.timezone | quote }}
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: ADMIN_USER
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: ADMIN_PASSWORD
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: JWT_SECRET_KEY
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: POSTGRES_DB
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: opc-config
+{{- end }}

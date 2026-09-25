@@ -1,0 +1,10 @@
+﻿global:
+  environment: production
+
+web:
+  replicaCount: 2
+  hpa:
+    enabled: false
+
+ingress:
+  enabled: false

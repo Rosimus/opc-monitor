@@ -1,0 +1,11 @@
+﻿global:
+  environment: staging
+
+web:
+  replicaCount: 1
+
+secrets:
+  postgresPassword: staging_password
+  adminPassword: staging_admin
+  jwtSecretKey: staging_jwt_secret
+  grafanaPassword: staging_grafana

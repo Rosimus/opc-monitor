@@ -1,0 +1,46 @@
+﻿{{- if .Values.server.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: server
+spec:
+  selector:
+    app: server
+  ports:
+    - port: 4840
+      targetPort: 4840
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: server
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      containers:
+        - name: server
+          image: {{ include "opc-monitor.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "server.py"]
+          ports:
+            - containerPort: 4840
+          env:
+            - name: TZ
+              value: {{ .Values.global.timezone | quote }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+{{- end }}
