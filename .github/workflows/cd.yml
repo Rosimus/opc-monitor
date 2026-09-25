@@ -39,18 +39,17 @@ jobs:
         run: |
           $status = minikube status --format='{{.Host}}' 2>$null
           if ($status -ne 'Running') {
-            Write-Host "Запуск Minikube..."
+            Write-Host "Starting Minikube..."
             minikube start
-          } else {
-            Write-Host "Minikube уже запущен"
           }
           kubectl config use-context minikube
 
-      - name: Log in to GHCR
+      - name: Logout from GHCR
         shell: powershell
         run: |
-          $token = "${{ secrets.GITHUB_TOKEN }}"
-          echo $token | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Образ публичный — логин не нужен
+          docker logout ghcr.io 2>$null
+          Write-Host "Skipping login (public image)"
 
       - name: Pull and load image
         shell: powershell
@@ -83,7 +82,7 @@ jobs:
       - name: Summary
         shell: powershell
         run: |
-          Write-Host "## ✅ Deploy Complete" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "## Deploy Complete" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "**Pods:**" >> $env:GITHUB_STEP_SUMMARY
           Write-Host '```' >> $env:GITHUB_STEP_SUMMARY
