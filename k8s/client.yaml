@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: opc-monitor
+  labels:
+    app: client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+    spec:
+      containers:
+        - name: client
+          image: opc-monitor:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "client.py"]
+          env:
+            - name: TZ
+              value: "Europe/Moscow"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: EMAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: EMAIL_PASSWORD
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: POSTGRES_DB
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          # Healthcheck временно отключены для стабильности
+          # livenessProbe:
+          #   exec:
+          #     command:
+          #       - pgrep
+          #       - -f
+          #       - python client.py
+          #   initialDelaySeconds: 30
+          #   periodSeconds: 10
+          # readinessProbe:
+          #   exec:
+          #     command:
+          #       - pgrep
+          #       - -f
+          #       - python client.py
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: opc-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: client-pvc

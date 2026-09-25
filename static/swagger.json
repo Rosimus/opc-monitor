@@ -1,0 +1,40 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "OPC Monitor API",
+    "version": "1.0.0",
+    "description": "API для мониторинга OPC UA параметров"
+  },
+  "paths": {
+    "/api/latest": {
+      "get": {
+        "summary": "Получить последние показания",
+        "responses": {
+          "200": {
+            "description": "Успешный ответ"
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "summary": "Получить историю показаний",
+        "responses": {
+          "200": {
+            "description": "Успешный ответ"
+          }
+        }
+      }
+    },
+    "/api/thresholds": {
+      "get": {
+        "summary": "Получить текущие пороги",
+        "responses": {
+          "200": {
+            "description": "Успешный ответ"
+          }
+        }
+      }
+    }
+  }
+}
