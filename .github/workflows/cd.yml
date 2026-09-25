@@ -55,7 +55,7 @@ jobs:
           docker logout ghcr.io 2>$null
           Write-Host "Skipping login (public image)"
 
-      - name: Pull and load image into Minikube
+      - name: Pull and load image
         shell: powershell
         run: |
           $sha = "${{ github.event.workflow_run.head_sha }}"
@@ -77,20 +77,25 @@ jobs:
           
           Write-Host "Deploying with Helm, image tag: $imageTag"
           
-          # Helm upgrade --install: идемпотентно
-          # - если релиз не существует — установит
-          # - если существует — обновит
           helm upgrade --install ${{ env.RELEASE_NAME }} ./helm/opc-monitor `
             --namespace ${{ env.NAMESPACE }} `
             --create-namespace `
             --values ./helm/opc-monitor/values-prod.yaml `
             --set image.tag=$imageTag `
-            --set web.replicaCount=2 `
-            --wait --timeout 5m
+            --timeout 2m
           
           Write-Host "Helm deploy complete"
 
-      - name: Verify deployment
+      - name: Wait for rollout
+        shell: powershell
+        run: |
+          Write-Host "Waiting for web rollout..."
+          kubectl rollout status deployment/web -n ${{ env.NAMESPACE }} --timeout=3m
+          
+          Write-Host "Waiting for client rollout..."
+          kubectl rollout status deployment/client -n ${{ env.NAMESPACE }} --timeout=3m
+
+      - name: Verify
         shell: powershell
         run: |
           Write-Host "=== Helm releases ==="
@@ -98,16 +103,11 @@ jobs:
           
           Write-Host "=== Pods ==="
           kubectl get pods -n ${{ env.NAMESPACE }}
-          
-          Write-Host "=== Rollout status ==="
-          kubectl rollout status deployment/web -n ${{ env.NAMESPACE }} --timeout=2m
 
       - name: Summary
         shell: powershell
         run: |
-          Write-Host "## Deploy Complete" >> $env:GITHUB_STEP_SUMMARY
-          Write-Host "" >> $env:GITHUB_STEP_SUMMARY
-          Write-Host "**Deployment method:** Helm" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "## Deploy Complete (Helm)" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "**Helm release:**" >> $env:GITHUB_STEP_SUMMARY
           Write-Host '```' >> $env:GITHUB_STEP_SUMMARY
