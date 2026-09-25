@@ -1,4 +1,20 @@
 ﻿{{- if .Values.client.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: client
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: client
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: client
+  ports:
+    - name: metrics
+      port: 8001
+      targetPort: 8001
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,6 +41,9 @@ spec:
           image: {{ include "opc-monitor.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "client.py"]
+          ports:
+            - name: metrics
+              containerPort: 8001
           env:
             - name: TZ
               value: {{ .Values.global.timezone | quote }}

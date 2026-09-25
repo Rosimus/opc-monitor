@@ -1,0 +1,37 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - htop
+  - git
+  - jq
+
+runcmd:
+  # Install k3s server
+  - |
+    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
+      --write-kubeconfig-mode 644 \
+      --node-name=k3s-master \
+      --tls-san=$(curl -s ifconfig.me)" \
+      K3S_TOKEN="${k3s_token}" sh -
+
+  # Setup kubeconfig for ubuntu user
+  - mkdir -p /home/ubuntu/.kube
+  - cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+  - chown -R ubuntu:ubuntu /home/ubuntu/.kube
+
+  # Install Helm
+  - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+  # Install cert-manager
+  - |
+    sleep 30
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
+
+write_files:
+  - path: /etc/rancher/k3s/token
+    content: "${k3s_token}"
+    permissions: '0600'

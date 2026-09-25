@@ -1,0 +1,31 @@
+# ============================================
+# Скопируйте в terraform.tfvars и заполните
+# ВАЖНО: terraform.tfvars НЕ КОММИТИТЬ в Git!
+# ============================================
+
+# Yandex Cloud credentials
+yc_token     = "y0_AgAAAA...your_token_here"
+yc_cloud_id  = "b1g...your_cloud_id"
+yc_folder_id = "b1g...your_folder_id"
+
+# Environment
+environment = "prod"
+
+# SSH access
+ssh_public_key   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...your_key"
+allowed_ssh_cidr = ["0.0.0.0/0"] # Для продакшена ограничьте!
+
+# Cluster config
+master_zone  = "ru-central1-a"
+worker_zones = ["ru-central1-a", "ru-central1-b"]
+
+master_cores  = 2
+master_memory = 4
+worker_cores  = 2
+worker_memory = 4
+
+# Database
+postgres_password = "YourStrongPassword2026!"
+
+# k3s token (32-byte random hex)
+k3s_token = "abcdef1234567890abcdef1234567890"

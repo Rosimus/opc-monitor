@@ -62,7 +62,6 @@ k8s/secret.yaml
 # Docker
 *.pid
 docker-compose.override.yml
-.dockerignore
 
 # Monitoring
 prometheus_data/
@@ -89,3 +88,19 @@ poetry.lock
 
 # Jupyter
 .ipynb_checkpoints/
+
+# ============================================
+# Terraform
+# ============================================
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfstate.backup
+terraform/terraform.tfvars
+terraform/*.tfvars
+!terraform/*.tfvars.example
+terraform/crash.log
+terraform/crash.*.log
+terraform/.terraformrc
+terraform/terraform.rc
