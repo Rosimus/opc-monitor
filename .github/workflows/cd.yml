@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: rosimus/opc-monitor
   NAMESPACE: opc-monitor
 
 jobs:
@@ -47,7 +47,6 @@ jobs:
       - name: Logout from GHCR
         shell: powershell
         run: |
-          # Образ публичный — логин не нужен
           docker logout ghcr.io 2>$null
           Write-Host "Skipping login (public image)"
 
