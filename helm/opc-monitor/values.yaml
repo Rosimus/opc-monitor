@@ -99,55 +99,57 @@ opcConfig:
       name: "Температура"
       node: "2:Temperature"
       unit: "°C"
-      warning_low: 15.0
-      alarm_low: 10.0
-      warning_high: 20.0
-      alarm_high: 22.0
+      warning_low: 20.0
+      alarm_low: 16.0
+      warning_high: 29.0
+      alarm_high: 33.0
     - id: pressure
       name: "Давление"
       node: "2:Pressure"
       unit: "кПа"
       warning_low: 90.0
       alarm_low: 85.0
-      warning_high: 110.0
-      alarm_high: 115.0
+      warning_high: 112.0
+      alarm_high: 118.0
     - id: humidity
       name: "Влажность"
       node: "2:Humidity"
       unit: "%"
-      warning_low: 70.0
-      alarm_low: 80.0
+      warning_low: 35.0
+      alarm_low: 32.0
+      warning_high: 70.0
+      alarm_high: 78.0
     - id: vibration
       name: "Вибрация"
       node: "2:Vibration"
       unit: "мм/с"
       warning_low: 3.0
-      alarm_low: 5.0
+      alarm_low: 4.0
     - id: current
       name: "Ток"
       node: "2:Current"
       unit: "A"
       warning_low: 5.0
-      alarm_low: 8.0
+      alarm_low: 7.0
     - id: speed
       name: "Скорость"
       node: "2:Speed"
       unit: "об/мин"
       warning_low: 1200.0
-      alarm_low: 1500.0
+      alarm_low: 1300.0
     - id: level
       name: "Уровень жидкости"
       node: "2:Level"
       unit: "%"
       warning_low: 20.0
-      alarm_low: 10.0
+      alarm_low: 15.0
       warning_high: 80.0
-      alarm_high: 90.0
+      alarm_high: 87.0
     - id: frequency
       name: "Частота"
       node: "2:Frequency"
       unit: "Гц"
-      warning_low: 45.0
-      alarm_low: 40.0
-      warning_high: 55.0
-      alarm_high: 60.0
+      warning_low: 47.0
+      alarm_low: 46.0
+      warning_high: 53.0
+      alarm_high: 54.0
