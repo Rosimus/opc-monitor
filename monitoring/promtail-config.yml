@@ -14,5 +14,3 @@ scrape_configs:
         labels:
           job: opc-monitor
           __path__: /var/log/containers/opc-monitor_*.log
-    pipeline_stages:
-      - cri: {}

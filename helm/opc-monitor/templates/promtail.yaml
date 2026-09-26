@@ -1,7 +1,4 @@
 {{- if .Values.promtail.enabled }}
-# ============================================
-# ConfigMap: Promtail config
-# ============================================
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -28,12 +25,7 @@ data:
             labels:
               job: opc-monitor
               __path__: /var/log/containers/opc-monitor_*.log
-        pipeline_stages:
-          - cri: {}
 ---
-# ============================================
-# DaemonSet
-# ============================================
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -79,9 +71,6 @@ spec:
           hostPath:
             path: /var/log
 ---
-# ============================================
-# ServiceAccount
-# ============================================
 apiVersion: v1
 kind: ServiceAccount
 metadata:
