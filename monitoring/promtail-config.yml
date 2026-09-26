@@ -13,4 +13,4 @@ scrape_configs:
           - localhost
         labels:
           job: opc-monitor
-          __path__: /var/log/containers/opc-monitor_*.log
+          __path__: /var/log/containers/*opc-monitor_*.log
