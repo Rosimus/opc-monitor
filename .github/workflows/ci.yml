@@ -58,16 +58,18 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner (filesystem scan)
         uses: aquasecurity/trivy-action@v0.36.0
         if: github.event_name != 'pull_request'
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          scan-type: 'fs'
+          scan-ref: '.'
           format: 'table'
           exit-code: '0'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+          scanners: 'vuln'
           output: 'trivy-results.txt'
 
       - name: Upload Trivy results as artifact
