@@ -3,6 +3,10 @@ import random
 import math
 import time
 from datetime import datetime
+import sys
+
+# Включаем построчную буферизацию stdout (для Docker/K8s)
+sys.stdout.reconfigure(line_buffering=True)
 
 
 # ============================================
@@ -19,7 +23,7 @@ plc = objects.add_object(idx, "PLC")
 # ============================================
 # Параметры симуляции
 # ============================================
-# Формат: name -> (base, min, max, step, default)
+# Формат: name -> {base, min, max, step, current}
 PARAMS = {
     "Temperature": {"base": 25.0, "min": 15.0, "max": 35.0, "step": 0.3, "current": 25.0},
     "Pressure":    {"base": 100.0, "min": 80.0, "max": 120.0, "step": 1.5, "current": 100.0},
@@ -56,6 +60,7 @@ def smooth_step(param_name: str, cfg: dict) -> float:
     - Random walk (плавное блуждание)
     - Возврат к базовому значению (mean reversion)
     - Случайный шум
+    - Суточные колебания
     """
     current = cfg["current"]
     base = cfg["base"]
@@ -63,7 +68,7 @@ def smooth_step(param_name: str, cfg: dict) -> float:
     min_v = cfg["min"]
     max_v = cfg["max"]
 
-    # 1. Притяжение к базовому значению (чтобы не улетало слишком далеко)
+    # 1. Притяжение к базовому значению
     drift_to_base = (base - current) * 0.05
 
     # 2. Случайное блуждание
@@ -75,7 +80,7 @@ def smooth_step(param_name: str, cfg: dict) -> float:
     # Итоговое изменение
     new_val = current + drift_to_base + random_walk + daily_wave
 
-    # 4. Ограничение диапазона
+    # Ограничение диапазона
     new_val = max(min_v, min(max_v, new_val))
 
     cfg["current"] = new_val
@@ -89,30 +94,28 @@ def trigger_alarm(param_name: str, duration: int = 15):
 
 def apply_alarm(param_name: str, cfg: dict) -> float:
     """
-    Наложить аварию — сдвигаем значение в сторону выхода за порог.
-    Плавно, но заметно.
+    Наложить аварию — плавно сдвигаем значение в сторону выхода за порог.
     """
     current = cfg["current"]
     base = cfg["base"]
-    step = cfg["step"]
 
-    # Сдвигаем в сторону от нормы
+    # Целевое значение для аварии
     if param_name == "Temperature":
-        target = cfg["max"] - 1  # ~34
+        target = cfg["max"] - 1       # ~34
     elif param_name == "Pressure":
-        target = cfg["max"] - 1  # ~119
+        target = cfg["max"] - 1       # ~119
     elif param_name == "Vibration":
-        target = cfg["max"] - 0.3  # ~4.7
+        target = cfg["max"] - 0.3     # ~4.7
     elif param_name == "Current":
-        target = cfg["max"] - 0.5  # ~8
+        target = cfg["max"] - 0.5     # ~8
     elif param_name == "Level":
-        target = cfg["min"] + 2  # низкий уровень
+        target = cfg["min"] + 2       # низкий уровень
     elif param_name == "Frequency":
-        target = cfg["max"] - 1  # ~54
+        target = cfg["max"] - 1       # ~54
     elif param_name == "Speed":
-        target = cfg["max"] - 30
+        target = cfg["max"] - 30      # ~1370
     elif param_name == "Humidity":
-        target = cfg["max"] - 2
+        target = cfg["max"] - 2       # ~78
     else:
         target = base
 
@@ -125,20 +128,20 @@ def apply_alarm(param_name: str, cfg: dict) -> float:
 def maybe_trigger_random_alarm():
     """
     С вероятностью ~1% за цикл запустить случайную аварию.
-    Также иногда — 'каскад' из 2 аварий (интереснее для скриншотов).
+    Иногда — каскад из 2 аварий.
     """
     if random.random() < 0.01:  # 1% на цикл = примерно раз в 100 циклов
         param = random.choice(list(PARAMS.keys()))
         duration = random.randint(10, 25)
         trigger_alarm(param, duration)
-        print(f"🚨 [{datetime.now().strftime('%H:%M:%S')}] АВАРИЯ: {param} ({duration} циклов)")
+        print(f"🚨 [{datetime.now().strftime('%H:%M:%S')}] АВАРИЯ: {param} ({duration} циклов)", flush=True)
 
         # 30% шанс на вторую аварию (каскад)
         if random.random() < 0.3:
             param2 = random.choice([p for p in PARAMS.keys() if p != param])
             duration2 = random.randint(8, 15)
             trigger_alarm(param2, duration2)
-            print(f"🚨 [{datetime.now().strftime('%H:%M:%S')}] АВАРИЯ: {param2} ({duration2} циклов)")
+            print(f"🚨 [{datetime.now().strftime('%H:%M:%S')}] АВАРИЯ: {param2} ({duration2} циклов)", flush=True)
 
 
 def update_all_params():
@@ -155,7 +158,7 @@ def update_all_params():
             alarm_state[name] -= 1
             if alarm_state[name] == 0:
                 del alarm_state[name]
-                print(f"✅ [{datetime.now().strftime('%H:%M:%S')}] {name} вернулся в норму")
+                print(f"✅ [{datetime.now().strftime('%H:%M:%S')}] {name} вернулся в норму", flush=True)
         else:
             val = smooth_step(name, cfg)
 
@@ -166,26 +169,26 @@ def update_all_params():
 # Запуск сервера
 # ============================================
 server.start()
-print("=" * 60)
-print("✅ OPC UA сервер запущен на opc.tcp://0.0.0.0:4840")
-print(f"📊 Симулируется {len(PARAMS)} параметров:")
+print("=" * 60, flush=True)
+print("✅ OPC UA сервер запущен на opc.tcp://0.0.0.0:4840", flush=True)
+print(f"📊 Симулируется {len(PARAMS)} параметров:", flush=True)
 for name in PARAMS:
-    print(f"   • {name}")
-print("=" * 60)
-print("🎬 Режим симуляции:")
-print("   • Плавные изменения (random walk)")
-print("   • Возврат к норме (mean reversion)")
-print("   • Суточные колебания")
-print("   • Случайные аварии (~1% за цикл)")
-print("   • Каскадные аварии (30% случаев)")
-print("=" * 60)
+    print(f"   • {name}", flush=True)
+print("=" * 60, flush=True)
+print("🎬 Режим симуляции:", flush=True)
+print("   • Плавные изменения (random walk)", flush=True)
+print("   • Возврат к норме (mean reversion)", flush=True)
+print("   • Суточные колебания", flush=True)
+print("   • Случайные аварии (~1% за цикл)", flush=True)
+print("   • Каскадные аварии (30% случаев)", flush=True)
+print("=" * 60, flush=True)
 
 try:
     while True:
         update_all_params()
         time.sleep(2)
 except KeyboardInterrupt:
-    print("\n⏹ Остановка сервера...")
+    print("\n⏹ Остановка сервера...", flush=True)
 finally:
     server.stop()
-    print("✅ Сервер остановлен")
+    print("✅ Сервер остановлен", flush=True)
