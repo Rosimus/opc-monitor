@@ -1,194 +1,224 @@
-from opcua import Server
-import random
+"""
+OPC UA PLC Simulator.
+
+Эмулирует промышленный контроллер с 8 параметрами. Генерирует реалистичные
+значения через random walk с возвратом к базовому значению, периодически
+воспроизводит аварийные сценарии.
+"""
+import logging
 import math
-import time
-from datetime import datetime
+import os
+import random
+import signal
 import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, Optional
 
-# Включаем построчную буферизацию stdout (для Docker/K8s)
-sys.stdout.reconfigure(line_buffering=True)
-
-
-# ============================================
-# Настройка OPC UA сервера
-# ============================================
-server = Server()
-server.set_endpoint("opc.tcp://0.0.0.0:4840")
-server.set_server_name("PLC Simulator")
-
-idx = server.register_namespace("PLC")
-objects = server.get_objects_node()
-plc = objects.add_object(idx, "PLC")
-
-# ============================================
-# Параметры симуляции
-# ============================================
-# Формат: name -> {base, min, max, step, current}
-PARAMS = {
-    "Temperature": {"base": 25.0, "min": 15.0, "max": 35.0, "step": 0.3, "current": 25.0},
-    "Pressure":    {"base": 100.0, "min": 80.0, "max": 120.0, "step": 1.5, "current": 100.0},
-    "Humidity":    {"base": 50.0, "min": 30.0, "max": 80.0, "step": 2.0, "current": 50.0},
-    "Vibration":   {"base": 1.5, "min": 0.2, "max": 5.0, "step": 0.2, "current": 1.5},
-    "Current":     {"base": 3.0, "min": 0.5, "max": 8.5, "step": 0.4, "current": 3.0},
-    "Speed":       {"base": 1000.0, "min": 700.0, "max": 1400.0, "step": 15.0, "current": 1000.0},
-    "Level":       {"base": 50.0, "min": 10.0, "max": 90.0, "step": 2.0, "current": 50.0},
-    "Frequency":   {"base": 50.0, "min": 45.0, "max": 55.0, "step": 0.3, "current": 50.0},
-}
-
-# Создаём переменные в OPC UA
-variables = {}
-for name, cfg in PARAMS.items():
-    var = plc.add_variable(idx, name, cfg["current"])
-    var.set_writable(True)
-    variables[name] = var
+from opcua import Server
 
 
 # ============================================
-# Состояние симуляции
+# Логирование
 # ============================================
-alarm_state = {}          # активные аварии: {param: осталось_циклов}
-tick = 0                  # счётчик циклов
-START_TIME = time.time()
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("plc-simulator")
 
 
 # ============================================
-# Логика реалистичного изменения
+# Конфигурация параметра
 # ============================================
-def smooth_step(param_name: str, cfg: dict) -> float:
-    """
-    Плавное изменение значения с трендом и шумом.
-    - Random walk (плавное блуждание)
-    - Возврат к базовому значению (mean reversion)
-    - Случайный шум
-    - Суточные колебания
-    """
-    current = cfg["current"]
-    base = cfg["base"]
-    step = cfg["step"]
-    min_v = cfg["min"]
-    max_v = cfg["max"]
+@dataclass
+class ParamConfig:
+    """Конфигурация одного параметра."""
+    name: str
+    base: float
+    min_value: float
+    max_value: float
+    step: float
+    alarm_target: float
+    current: float = field(init=False)
 
-    # 1. Притяжение к базовому значению
-    drift_to_base = (base - current) * 0.05
-
-    # 2. Случайное блуждание
-    random_walk = random.uniform(-step, step)
-
-    # 3. Суточные колебания (медленные)
-    daily_wave = math.sin(tick / 200.0) * step * 0.3
-
-    # Итоговое изменение
-    new_val = current + drift_to_base + random_walk + daily_wave
-
-    # Ограничение диапазона
-    new_val = max(min_v, min(max_v, new_val))
-
-    cfg["current"] = new_val
-    return round(new_val, 2)
+    def __post_init__(self):
+        self.current = self.base
 
 
-def trigger_alarm(param_name: str, duration: int = 15):
-    """Запустить аварию на N циклов."""
-    alarm_state[param_name] = duration
+# ============================================
+# Симулятор PLC
+# ============================================
+class PLCSimulator:
+    """Симулятор ПЛК с OPC UA-сервером."""
 
+    # Конфигурация параметров
+    PARAMS: Dict[str, ParamConfig] = {
+        "Temperature": ParamConfig("Temperature", 25.0, 15.0, 35.0, 0.3, 34.0),
+        "Pressure":    ParamConfig("Pressure", 100.0, 80.0, 120.0, 1.5, 119.0),
+        "Humidity":    ParamConfig("Humidity", 50.0, 30.0, 80.0, 2.0, 78.0),
+        "Vibration":   ParamConfig("Vibration", 1.5, 0.2, 5.0, 0.2, 4.7),
+        "Current":     ParamConfig("Current", 3.0, 0.5, 8.5, 0.4, 8.0),
+        "Speed":       ParamConfig("Speed", 1000.0, 700.0, 1400.0, 15.0, 1370.0),
+        "Level":       ParamConfig("Level", 50.0, 10.0, 90.0, 2.0, 12.0),
+        "Frequency":   ParamConfig("Frequency", 50.0, 45.0, 55.0, 0.3, 54.0),
+    }
 
-def apply_alarm(param_name: str, cfg: dict) -> float:
-    """
-    Наложить аварию — плавно сдвигаем значение в сторону выхода за порог.
-    """
-    current = cfg["current"]
-    base = cfg["base"]
+    # Вероятность запуска аварии за один цикл
+    ALARM_PROBABILITY = 0.01
+    # Вероятность каскадной аварии (второй параметр одновременно)
+    CASCADE_PROBABILITY = 0.3
 
-    # Целевое значение для аварии
-    if param_name == "Temperature":
-        target = cfg["max"] - 1       # ~34
-    elif param_name == "Pressure":
-        target = cfg["max"] - 1       # ~119
-    elif param_name == "Vibration":
-        target = cfg["max"] - 0.3     # ~4.7
-    elif param_name == "Current":
-        target = cfg["max"] - 0.5     # ~8
-    elif param_name == "Level":
-        target = cfg["min"] + 2       # низкий уровень
-    elif param_name == "Frequency":
-        target = cfg["max"] - 1       # ~54
-    elif param_name == "Speed":
-        target = cfg["max"] - 30      # ~1370
-    elif param_name == "Humidity":
-        target = cfg["max"] - 2       # ~78
-    else:
-        target = base
+    def __init__(self, endpoint: str = "opc.tcp://0.0.0.0:4840"):
+        self.endpoint = endpoint
+        self.server: Optional[Server] = None
+        self.variables: Dict[str, object] = {}
+        self.alarm_state: Dict[str, int] = {}
+        self.tick = 0
+        self.running = False
 
-    # Плавно двигаемся к target
-    new_val = current + (target - current) * 0.15
-    cfg["current"] = new_val
-    return round(new_val, 2)
+        # Настройка graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
 
+    # ---------- Управление сервером ----------
+    def _signal_handler(self, signum, frame):
+        logger.info(f"Получен сигнал {signum}, останавливаюсь...")
+        self.running = False
 
-def maybe_trigger_random_alarm():
-    """
-    С вероятностью ~1% за цикл запустить случайную аварию.
-    Иногда — каскад из 2 аварий.
-    """
-    if random.random() < 0.01:  # 1% на цикл = примерно раз в 100 циклов
-        param = random.choice(list(PARAMS.keys()))
+    def _setup_server(self) -> None:
+        """Создаёт OPC UA-сервер и регистрирует переменные."""
+        self.server = Server()
+        self.server.set_endpoint(self.endpoint)
+        self.server.set_server_name("PLC Simulator")
+
+        idx = self.server.register_namespace("PLC")
+        objects = self.server.get_objects_node()
+        plc = objects.add_object(idx, "PLC")
+
+        for name, cfg in self.PARAMS.items():
+            var = plc.add_variable(idx, name, cfg.current)
+            var.set_writable(True)
+            self.variables[name] = var
+
+        logger.info(f"OPC UA сервер настроен: {self.endpoint}")
+        logger.info(f"Зарегистрировано параметров: {len(self.variables)}")
+
+    def start(self) -> None:
+        """Запускает сервер и основной цикл."""
+        try:
+            self._setup_server()
+            self.server.start()
+            self.running = True
+
+            logger.info("=" * 60)
+            logger.info(f"✅ OPC UA сервер запущен на {self.endpoint}")
+            logger.info(f"📊 Симулируется {len(self.PARAMS)} параметров")
+            logger.info("🎬 Режим: random walk + mean reversion + аварии")
+            logger.info("=" * 60)
+
+            self._main_loop()
+
+        except Exception as e:
+            logger.exception(f"Критическая ошибка при запуске сервера: {e}")
+            raise
+        finally:
+            self._shutdown()
+
+    def _shutdown(self) -> None:
+        """Корректно останавливает сервер."""
+        if self.server:
+            try:
+                self.server.stop()
+                logger.info("OPC UA сервер остановлен")
+            except Exception as e:
+                logger.error(f"Ошибка при остановке сервера: {e}")
+
+    # ---------- Основной цикл ----------
+    def _main_loop(self) -> None:
+        """Основной цикл обновления значений."""
+        while self.running:
+            try:
+                self._update_all_params()
+            except Exception as e:
+                # Не падаем при единичной ошибке, логируем и продолжаем
+                logger.exception(f"Ошибка в цикле обновления: {e}")
+            time.sleep(2)
+
+    def _update_all_params(self) -> None:
+        """Обновляет все параметры и записывает в OPC UA."""
+        self.tick += 1
+        self._maybe_trigger_alarm()
+
+        for name, cfg in self.PARAMS.items():
+            try:
+                if name in self.alarm_state and self.alarm_state[name] > 0:
+                    value = self._apply_alarm(name, cfg)
+                    self.alarm_state[name] -= 1
+                    if self.alarm_state[name] == 0:
+                        del self.alarm_state[name]
+                        logger.info(f"✅ {name} вернулся в норму")
+                else:
+                    value = self._smooth_step(name, cfg)
+
+                self.variables[name].set_value(value)
+            except Exception as e:
+                logger.error(f"Ошибка обновления параметра {name}: {e}")
+
+    # ---------- Логика генерации ----------
+    def _smooth_step(self, name: str, cfg: ParamConfig) -> float:
+        """Плавное изменение с random walk, mean reversion и суточной волной."""
+        current = cfg.current
+        drift_to_base = (cfg.base - current) * 0.05
+        random_walk = random.uniform(-cfg.step, cfg.step)
+        daily_wave = math.sin(self.tick / 200.0) * cfg.step * 0.3
+
+        new_value = current + drift_to_base + random_walk + daily_wave
+        new_value = max(cfg.min_value, min(cfg.max_value, new_value))
+
+        cfg.current = new_value
+        return round(new_value, 2)
+
+    def _apply_alarm(self, name: str, cfg: ParamConfig) -> float:
+        """Плавно двигает значение к аварийному порогу."""
+        new_value = cfg.current + (cfg.alarm_target - cfg.current) * 0.15
+        cfg.current = new_value
+        return round(new_value, 2)
+
+    def _maybe_trigger_alarm(self) -> None:
+        """С вероятностью ALARM_PROBABILITY запускает случайную аварию."""
+        if random.random() >= self.ALARM_PROBABILITY:
+            return
+
+        param = random.choice(list(self.PARAMS.keys()))
         duration = random.randint(10, 25)
-        trigger_alarm(param, duration)
-        print(f"🚨 [{datetime.now().strftime('%H:%M:%S')}] АВАРИЯ: {param} ({duration} циклов)", flush=True)
+        self.alarm_state[param] = duration
+        logger.warning(f"🚨 АВАРИЯ: {param} ({duration} циклов)")
 
-        # 30% шанс на вторую аварию (каскад)
-        if random.random() < 0.3:
-            param2 = random.choice([p for p in PARAMS.keys() if p != param])
+        # Каскадная авария
+        if random.random() < self.CASCADE_PROBABILITY:
+            other = random.choice([p for p in self.PARAMS if p != param])
             duration2 = random.randint(8, 15)
-            trigger_alarm(param2, duration2)
-            print(f"🚨 [{datetime.now().strftime('%H:%M:%S')}] АВАРИЯ: {param2} ({duration2} циклов)", flush=True)
-
-
-def update_all_params():
-    """Обновить все параметры и записать в OPC UA."""
-    global tick
-    tick += 1
-
-    maybe_trigger_random_alarm()
-
-    for name, cfg in PARAMS.items():
-        # Если активна авария — применяем её
-        if name in alarm_state and alarm_state[name] > 0:
-            val = apply_alarm(name, cfg)
-            alarm_state[name] -= 1
-            if alarm_state[name] == 0:
-                del alarm_state[name]
-                print(f"✅ [{datetime.now().strftime('%H:%M:%S')}] {name} вернулся в норму", flush=True)
-        else:
-            val = smooth_step(name, cfg)
-
-        variables[name].set_value(val)
+            self.alarm_state[other] = duration2
+            logger.warning(f"🚨 АВАРИЯ: {other} ({duration2} циклов)")
 
 
 # ============================================
-# Запуск сервера
+# Точка входа
 # ============================================
-server.start()
-print("=" * 60, flush=True)
-print("✅ OPC UA сервер запущен на opc.tcp://0.0.0.0:4840", flush=True)
-print(f"📊 Симулируется {len(PARAMS)} параметров:", flush=True)
-for name in PARAMS:
-    print(f"   • {name}", flush=True)
-print("=" * 60, flush=True)
-print("🎬 Режим симуляции:", flush=True)
-print("   • Плавные изменения (random walk)", flush=True)
-print("   • Возврат к норме (mean reversion)", flush=True)
-print("   • Суточные колебания", flush=True)
-print("   • Случайные аварии (~1% за цикл)", flush=True)
-print("   • Каскадные аварии (30% случаев)", flush=True)
-print("=" * 60, flush=True)
+def main() -> int:
+    endpoint = os.getenv("OPC_ENDPOINT", "opc.tcp://0.0.0.0:4840")
+    simulator = PLCSimulator(endpoint=endpoint)
 
-try:
-    while True:
-        update_all_params()
-        time.sleep(2)
-except KeyboardInterrupt:
-    print("\n⏹ Остановка сервера...", flush=True)
-finally:
-    server.stop()
-    print("✅ Сервер остановлен", flush=True)
+    try:
+        simulator.start()
+    except Exception as e:
+        logger.exception(f"Симулятор завершился с ошибкой: {e}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
