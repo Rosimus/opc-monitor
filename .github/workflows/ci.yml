@@ -58,14 +58,11 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      # ============================================
-      # Security: Trivy vulnerability scanner
-      # ============================================
       - name: Run Trivy vulnerability scanner
-	uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         if: github.event_name != 'pull_request'
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
           format: 'table'
           exit-code: '0'
           ignore-unfixed: true
@@ -81,20 +78,10 @@ jobs:
           path: trivy-results.txt
           retention-days: 30
 
-      - name: Display Trivy results in summary
-        if: always() && github.event_name != 'pull_request'
-        run: |
-          echo "## 🔒 Trivy Security Scan" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f trivy-results.txt ]; then
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            head -50 trivy-results.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-
       - name: Summary
+        if: always()
         run: |
-          echo "### ✅ Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image tags:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
