@@ -49,7 +49,7 @@ jobs:
           echo "All tests passed." >> $GITHUB_STEP_SUMMARY
 
   # ============================================================
-  # Job 2: Сборка и публикация образа (зависит от test)
+  # Job 2: Сборка, публикация, сканирование
   # ============================================================
   build:
     name: Build & Push Image
@@ -101,7 +101,7 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
