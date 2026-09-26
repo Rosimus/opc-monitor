@@ -2,27 +2,24 @@ server:
   http_listen_port: 9080
   grpc_listen_port: 0
   log_level: info
-
 positions:
   filename: /tmp/positions.yaml
-
 clients:
   - url: http://loki:3100/loki/api/v1/push
-
 scrape_configs:
   - job_name: kubernetes-pods
     kubernetes_sd_configs:
       - role: pod
+        namespaces:
+          names:
+            - opc-monitor
     pipeline_stages:
       - cri: {}
     relabel_configs:
-      # Убираем поды, которые нам не нужны
       - source_labels:
           - __meta_kubernetes_pod_phase
         regex: (Succeeded|Failed)
         action: drop
-
-      # Правильный путь к логам
       - source_labels:
           - __meta_kubernetes_namespace
           - __meta_kubernetes_pod_name
@@ -32,8 +29,6 @@ scrape_configs:
         regex: (.+)_(.+)_(.+)_(.+)
         replacement: /var/log/pods/$1_$2_$3/$4/*.log
         target_label: __path__
-
-      # Labels
       - action: replace
         source_labels:
           - __meta_kubernetes_namespace
