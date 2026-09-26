@@ -1,14 +1,11 @@
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
-  log_level: info
-
+  log_level: debug
 positions:
   filename: /tmp/positions.yaml
-
 clients:
   - url: http://loki:3100/loki/api/v1/push
-
 scrape_configs:
   - job_name: opc-monitor-pods
     static_configs:
@@ -16,17 +13,4 @@ scrape_configs:
           - localhost
         labels:
           job: opc-monitor
-          __path__: /var/log/pods/opc-monitor_*/*/*.log
-    pipeline_stages:
-      - cri: {}
-    relabel_configs:
-      - source_labels: ['__path__']
-        regex: '/var/log/pods/opc-monitor_([^_]+)_[^/]+/([^/]+)/.*'
-        target_label: 'pod'
-        replacement: '$1'
-      - source_labels: ['__path__']
-        regex: '/var/log/pods/opc-monitor_([^_]+)_[^/]+/([^/]+)/.*'
-        target_label: 'container'
-        replacement: '$2'
-      - replacement: 'opc-monitor'
-        target_label: 'namespace'
+          __path__: /var/log/pods/**/*.log

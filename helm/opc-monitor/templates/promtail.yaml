@@ -1,7 +1,4 @@
 {{- if .Values.promtail.enabled }}
-# ============================================
-# ConfigMap: Promtail config
-# ============================================
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,7 +12,7 @@ data:
     server:
       http_listen_port: 9080
       grpc_listen_port: 0
-      log_level: info
+      log_level: debug
     positions:
       filename: /tmp/positions.yaml
     clients:
@@ -27,25 +24,8 @@ data:
               - localhost
             labels:
               job: opc-monitor
-              __path__: /var/log/pods/opc-monitor_*/*/*.log
-        pipeline_stages:
-          - cri: {}
-        relabel_configs:
-          # /var/log/pods/opc-monitor_<pod>_<uid>/<container>/<n>.log
-          - source_labels: ['__path__']
-            regex: '/var/log/pods/opc-monitor_([^_]+)_[^/]+/([^/]+)/.*'
-            target_label: 'pod'
-            replacement: '$1'
-          - source_labels: ['__path__']
-            regex: '/var/log/pods/opc-monitor_([^_]+)_[^/]+/([^/]+)/.*'
-            target_label: 'container'
-            replacement: '$2'
-          - replacement: 'opc-monitor'
-            target_label: 'namespace'
+              __path__: /var/log/pods/**/*.log
 ---
-# ============================================
-# DaemonSet
-# ============================================
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
