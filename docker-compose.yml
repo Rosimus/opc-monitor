@@ -137,6 +137,30 @@ services:
       - '--storage.path=/alertmanager'
       - '--web.external-url=http://localhost:9093'
 
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    networks:
+      - opc-net
+    command:
+      - '-config.file=/etc/loki/local-config.yaml'
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - opc-net
+    command:
+      - '-config.file=/etc/promtail/config.yml'
+    depends_on:
+      - loki
+
   grafana:
     image: grafana/grafana:10.4.5
     ports:
@@ -156,6 +180,7 @@ services:
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/opc-monitor.json
     depends_on:
       - prometheus
+      - loki
 
 volumes:
   postgres_data:
@@ -163,6 +188,7 @@ volumes:
   prometheus_data:
   grafana_data:
   alertmanager_data:
+  loki_data:
 
 networks:
   opc-net:

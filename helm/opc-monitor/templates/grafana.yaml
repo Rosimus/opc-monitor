@@ -1,6 +1,6 @@
 ﻿{{- if .Values.grafana.enabled }}
 # ============================================
-# ConfigMap: datasource Prometheus
+# ConfigMap: datasources (Prometheus + Loki)
 # ============================================
 apiVersion: v1
 kind: ConfigMap
@@ -22,6 +22,15 @@ data:
         editable: false
         jsonData:
           timeInterval: "15s"
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        isDefault: false
+        editable: false
+        jsonData:
+          maxLines: 1000
 ---
 # ============================================
 # ConfigMap: dashboard provider

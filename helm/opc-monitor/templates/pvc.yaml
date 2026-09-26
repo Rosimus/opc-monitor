@@ -65,3 +65,20 @@ spec:
       storage: 5Gi
   storageClassName: standard
 {{- end }}
+---
+{{- if .Values.loki.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+{{- end }}
