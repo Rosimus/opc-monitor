@@ -93,6 +93,8 @@ secrets:
   jwtSecretKey: change_me_jwt_secret
   emailPassword: ""
   grafanaPassword: admin
+  telegramBotToken: "placeholder"
+  telegramChatId: "0"
 
 opcConfig:
   url: "opc.tcp://server:4840"

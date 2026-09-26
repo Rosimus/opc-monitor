@@ -133,12 +133,13 @@ services:
     networks:
       - opc-net
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-placeholder}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-0}
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
       - '--web.external-url=http://localhost:9093'
+      - '--config.expand-env'
 
   grafana:
     image: grafana/grafana:10.4.5
