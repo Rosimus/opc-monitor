@@ -25,6 +25,7 @@
 - 🐳 **Docker-образ** с автоматической сборкой
 - ☸️ **Kubernetes-деплой** через kubectl / Helm
 - ⛵ **Helm-чарт** с параметризацией под staging и prod
+- 🔑 **Управление секретами** через GitHub Secrets + `values-secrets.yaml`
 - 🌩️ **Terraform** — IaC для Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
 - ✅ **41 тест** (29 unit + 12 integration) в CI pipeline
@@ -178,8 +179,9 @@ kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 2. ✅ Скачивает образ из GHCR
 3. ✅ Загружает в Minikube
 4. ✅ Выполняет `helm upgrade --install` (атомарно)
-5. ✅ Проверяет готовность через `kubectl rollout status`
-6. ✅ Публикует summary с состоянием подов
+5. ✅ Подставляет секреты из GitHub Secrets (если заданы)
+6. ✅ Проверяет готовность через `kubectl rollout status`
+7. ✅ Публикует summary с состоянием подов
 
 **Время от `git push` до работающего приложения: ~60 секунд** ⚡
 
@@ -270,15 +272,74 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 
 ## 🔑 Управление секретами
 
-### Текущий подход (для демо)
+### Текущий подход
 
-Секреты хранятся в `helm/opc-monitor/values.yaml` в открытом виде. Значения — placeholder'ы, которые нужно заменить при первом деплое.
+Секреты хранятся в двух местах:
 
-**Почему так:** для пет-проекта это упрощает воспроизведение. Реальные секреты не попадают в Git благодаря `.gitignore`.
+1. **`helm/opc-monitor/values.yaml`** — дефолтные значения-плейсхолдеры для локальной разработки.
+2. **GitHub Secrets** — реальные значения, которые подставляются в CD-пайплайне через `--set`.
+
+**Как это работает в CD:**
+
+CD-пайплайн (`cd.yml`) перед `helm upgrade` проверяет наличие секретов в GitHub:
+- Если секрет задан — используется он.
+- Если не задан — используется дефолт из `values.yaml`.
+
+Пример из `cd.yml`:
+
+```powershell
+$postgresPassword = "${{ secrets.POSTGRES_PASSWORD }}"
+if (-not $postgresPassword) { $postgresPassword = "change_me_secure_password" }
+
+helm upgrade --install ... `
+  --set secrets.postgresPassword=$postgresPassword
+```
+
+### Локальная разработка
+
+Для локального запуска через Docker Compose используются значения из `.env` (см. `.env.example`).
+
+### Файл `values-secrets.yaml`
+
+Для продакшена используется отдельный файл `values-secrets.yaml`, который **не коммитится в Git**.
+
+**Как настроить:**
+
+1. Скопировать шаблон:
+   ```bash
+   cp helm/opc-monitor/values-secrets.yaml.example helm/opc-monitor/values-secrets.yaml
+   ```
+
+2. Заменить placeholder'ы на реальные значения.
+
+3. Передать при деплое:
+   ```bash
+   helm upgrade --install opc-monitor ./helm/opc-monitor \
+     --values ./helm/opc-monitor/values-prod.yaml \
+     --values ./helm/opc-monitor/values-secrets.yaml
+   ```
+
+**Что в `.gitignore`:**
+
+```
+helm/opc-monitor/values-secrets.yaml
+!helm/opc-monitor/values-secrets.yaml.example
+```
+
+### Как добавить секреты в GitHub
+
+1. Открыть **Settings → Secrets and variables → Actions**.
+2. Нажать **New repository secret**.
+3. Добавить:
+   - `POSTGRES_PASSWORD` — пароль PostgreSQL.
+   - `JWT_SECRET_KEY` — сгенерировать через `openssl rand -hex 32`.
+   - `ADMIN_PASSWORD` — пароль admin.
+   - `GRAFANA_PASSWORD` — пароль Grafana.
+4. Следующий CD подхватит их автоматически.
 
 ### Продакшен-подходы
 
-В продакшене секреты не хранятся в values-файлах. Используются:
+В продакшене секреты не хранятся ни в Git, ни в env-переменных CI. Используются:
 
 | Инструмент | Как работает |
 |------------|--------------|
@@ -287,7 +348,7 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 | **SOPS + age/KMS** | Шифрование файлов values; расшифровка при деплое через CI или ArgoCD |
 | **HashiCorp Vault + Agent Injector** | Секреты инжектятся в поды напрямую из Vault |
 
-**Пример с External Secrets Operator:**
+### Пример с External Secrets Operator
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -312,13 +373,6 @@ spec:
         key: opc-monitor-secrets
         property: jwt-secret
 ```
-
-**Что нужно для перехода на продакшен:**
-
-1. Заменить `values.yaml` с плейсхолдерами на `values.yaml.example`.
-2. В CI/CD передавать секреты через GitHub Secrets.
-3. Установить External Secrets Operator + ClusterSecretStore.
-4. Создать `ExternalSecret` манифест (пример выше).
 
 ## 🧪 Тестирование
 
@@ -355,6 +409,7 @@ opc-monitor/
 │   ├── values.yaml
 │   ├── values-staging.yaml
 │   ├── values-prod.yaml
+│   ├── values-secrets.yaml.example   # шаблон для секретов
 │   ├── dashboards/
 │   │   └── opc-monitor.json
 │   └── templates/

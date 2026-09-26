@@ -74,16 +74,33 @@ jobs:
           if (-not $sha) { $sha = "${{ github.sha }}" }
           $shortSha = $sha.Substring(0, 7)
           $imageTag = "sha-$shortSha"
-          
+
           Write-Host "Deploying with Helm, image tag: $imageTag"
-          
+
+          # Секреты: если заданы в GitHub Secrets — используем, иначе дефолты из values.yaml
+          $postgresPassword = "${{ secrets.POSTGRES_PASSWORD }}"
+          if (-not $postgresPassword) { $postgresPassword = "change_me_secure_password" }
+
+          $jwtSecretKey = "${{ secrets.JWT_SECRET_KEY }}"
+          if (-not $jwtSecretKey) { $jwtSecretKey = "change_me_jwt_secret" }
+
+          $adminPassword = "${{ secrets.ADMIN_PASSWORD }}"
+          if (-not $adminPassword) { $adminPassword = "change_me_secure_admin_password" }
+
+          $grafanaPassword = "${{ secrets.GRAFANA_PASSWORD }}"
+          if (-not $grafanaPassword) { $grafanaPassword = "admin" }
+
           helm upgrade --install ${{ env.RELEASE_NAME }} ./helm/opc-monitor `
             --namespace ${{ env.NAMESPACE }} `
             --create-namespace `
             --values ./helm/opc-monitor/values-prod.yaml `
             --set image.tag=$imageTag `
+            --set secrets.postgresPassword=$postgresPassword `
+            --set secrets.jwtSecretKey=$jwtSecretKey `
+            --set secrets.adminPassword=$adminPassword `
+            --set secrets.grafanaPassword=$grafanaPassword `
             --timeout 2m
-          
+
           Write-Host "Helm deploy complete"
 
       - name: Wait for rollout
@@ -91,7 +108,7 @@ jobs:
         run: |
           Write-Host "Waiting for web rollout..."
           kubectl rollout status deployment/web -n ${{ env.NAMESPACE }} --timeout=3m
-          
+
           Write-Host "Waiting for client rollout..."
           kubectl rollout status deployment/client -n ${{ env.NAMESPACE }} --timeout=3m
 
@@ -100,7 +117,7 @@ jobs:
         run: |
           Write-Host "=== Helm releases ==="
           helm list -n ${{ env.NAMESPACE }}
-          
+
           Write-Host "=== Pods ==="
           kubectl get pods -n ${{ env.NAMESPACE }}
 

@@ -62,6 +62,7 @@ k8s/secret.yaml
 # Docker
 *.pid
 docker-compose.override.yml
+.dockerignore
 
 # Monitoring
 prometheus_data/
@@ -104,3 +105,9 @@ terraform/crash.log
 terraform/crash.*.log
 terraform/.terraformrc
 terraform/terraform.rc
+
+# ============================================
+# Helm secrets
+# ============================================
+helm/opc-monitor/values-secrets.yaml
+!helm/opc-monitor/values-secrets.yaml.example
