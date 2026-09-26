@@ -17,3 +17,6 @@ structlog==24.1.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
 eventlet==0.33.3
+redis==5.0.1
+pytest==8.0.0
+pytest-cov==4.1.0
