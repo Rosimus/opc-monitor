@@ -1,7 +1,7 @@
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
-  log_level: debug
+  log_level: info
 positions:
   filename: /tmp/positions.yaml
 clients:
@@ -13,4 +13,6 @@ scrape_configs:
           - localhost
         labels:
           job: opc-monitor
-          __path__: /var/log/pods/**/*.log
+          __path__: /var/log/containers/opc-monitor_*.log
+    pipeline_stages:
+      - cri: {}
