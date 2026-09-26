@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/helm-3.12+-0F1689)](https://helm.sh/)
-[![Tests](https://img.shields.io/badge/tests-29%20passed-brightgreen)](#-тестирование)
+[![Tests](https://img.shields.io/badge/tests-41%20passed-brightgreen)](#-тестирование)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Система мониторинга промышленного оборудования на OPC UA с веб-интерфейсом, алертами, аналитикой и полным CI/CD pipeline.
@@ -27,7 +27,7 @@
 - ⛵ **Helm-чарт** с параметризацией под staging и prod
 - 🌩️ **Terraform** — IaC для Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
-- ✅ **29 pytest-тестов** в CI pipeline
+- ✅ **41 тест** (29 unit + 12 integration) в CI pipeline
 - 📦 **GHCR** — автоматическая загрузка образов
 - 🛡️ **Security Hardened** — non-root, security headers, rate limiting, Trivy scan
 
@@ -85,7 +85,7 @@
 | **Мониторинг** | Prometheus, Alertmanager, Grafana (provisioning as code) |
 | **Контейнеризация** | Docker, Docker Compose |
 | **IaC** | Terraform (Yandex Cloud) |
-| **Тесты** | pytest, pytest-cov |
+| **Тесты** | pytest, pytest-cov, pytest-mock |
 
 ## 📸 Скриншоты
 
@@ -165,7 +165,7 @@ kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 ### CI — Test, Build & Push
 
 При каждом push в `main`:
-1. ✅ **Run Tests** — 29 pytest-тестов + coverage report
+1. ✅ **Run Tests** — 41 тест (29 unit + 12 integration) + coverage report
 2. ✅ Автоматическая сборка Docker-образа
 3. ✅ Загрузка в GitHub Container Registry (GHCR)
 4. ✅ **Trivy scan** — проверка на уязвимости (CRITICAL/HIGH)
@@ -266,8 +266,59 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 ### Известные ограничения (для пет-проекта)
 
 - Симулятор PLC не использует TLS/шифрование OPC UA — это допустимо для демонстрации. В продакшене требуется настроить сертификаты и security policy.
-- Секреты в Helm values хранятся в открытом виде для упрощения. В продакшене используется External Secrets Operator, SOPS или Yandex Lockbox.
 - Alertmanager использует receiver `default` (логирует в stdout). Telegram-интеграция подготовлена, но требует реальных `bot_token` и `chat_id`.
+
+## 🔑 Управление секретами
+
+### Текущий подход (для демо)
+
+Секреты хранятся в `helm/opc-monitor/values.yaml` в открытом виде. Значения — placeholder'ы, которые нужно заменить при первом деплое.
+
+**Почему так:** для пет-проекта это упрощает воспроизведение. Реальные секреты не попадают в Git благодаря `.gitignore`.
+
+### Продакшен-подходы
+
+В продакшене секреты не хранятся в values-файлах. Используются:
+
+| Инструмент | Как работает |
+|------------|--------------|
+| **External Secrets Operator** | Синхронизирует секреты из внешнего хранилища (Vault, Yandex Lockbox, AWS Secrets Manager) в Kubernetes Secret |
+| **Sealed Secrets** | Секреты шифруются публичным ключом и коммитятся в Git; расшифровываются только контроллером в кластере |
+| **SOPS + age/KMS** | Шифрование файлов values; расшифровка при деплое через CI или ArgoCD |
+| **HashiCorp Vault + Agent Injector** | Секреты инжектятся в поды напрямую из Vault |
+
+**Пример с External Secrets Operator:**
+
+```yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: opc-secrets
+  namespace: opc-monitor
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: yandex-lockbox
+    kind: ClusterSecretStore
+  target:
+    name: opc-secrets
+  data:
+    - secretKey: POSTGRES_PASSWORD
+      remoteRef:
+        key: opc-monitor-secrets
+        property: postgres-password
+    - secretKey: JWT_SECRET_KEY
+      remoteRef:
+        key: opc-monitor-secrets
+        property: jwt-secret
+```
+
+**Что нужно для перехода на продакшен:**
+
+1. Заменить `values.yaml` с плейсхолдерами на `values.yaml.example`.
+2. В CI/CD передавать секреты через GitHub Secrets.
+3. Установить External Secrets Operator + ClusterSecretStore.
+4. Создать `ExternalSecret` манифест (пример выше).
 
 ## 🧪 Тестирование
 
@@ -277,11 +328,20 @@ pytest tests/ -v
 pytest tests/ -v --cov=. --cov-report=term-missing
 ```
 
-**29 тестов** покрывают:
+**41 тест** покрывают:
+
+### Unit-тесты (`tests/test_utils.py`)
 - `get_param_status` — двусторонний и односторонний контроль, edge cases
 - `parse_datetime` — 5 сценариев парсинга
 - Конвертеры температуры и давления
 - Лейблы единиц измерения
+
+### Integration-тесты (`tests/test_api.py`)
+- Healthcheck (`/health`)
+- Авторизация (`/api/auth/login`) — успех и провал
+- JWT-защита (`/api/latest`, `/api/history`, `/api/params`)
+- Metrics (`/metrics`)
+- Root (`/`)
 
 ## 📁 Структура проекта
 
@@ -309,7 +369,9 @@ opc-monitor/
 ├── terraform/                   # IaC для Yandex Cloud
 ├── tests/
 │   ├── __init__.py
-│   └── test_utils.py
+│   ├── conftest.py              # pytest-фикстуры
+│   ├── test_utils.py            # unit-тесты
+│   └── test_api.py              # integration-тесты
 ├── docs/
 │   ├── RUNBOOK.md               # Инструкция для on-call
 │   └── screenshots/
