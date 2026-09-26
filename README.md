@@ -25,6 +25,7 @@
 - ⛵ **Helm-чарт** с параметризацией для multi-environment
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
 - 📦 **GHCR** — автоматическая загрузка образов
+- 🛡️ **Security Hardened** — non-root, security headers, rate limiting, Trivy scan
 
 ## 🏗️ Архитектура
 
@@ -54,6 +55,7 @@
 │         Web App (Flask + Gunicorn)                       │
 │  • REST API с JWT-аутентификацией                        │
 │  • Web UI (Chart.js, dark/light тема)                    │
+│  • Security headers (Talisman) + Rate limiting           │
 │  • Метрики Prometheus на :5000/metrics                   │
 └──────────────────────────────────────────────────────────┘
                             │
@@ -72,11 +74,12 @@
 | **Frontend** | Vanilla JS, Chart.js, Socket.IO client |
 | **База данных** | PostgreSQL 15, Redis |
 | **Аутентификация** | JWT (flask-jwt-extended) |
+| **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy |
 | **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3 |
 | **CI/CD** | GitHub Actions, GHCR, self-hosted runner |
 | **Мониторинг** | Prometheus, Grafana |
 | **Контейнеризация** | Docker, Docker Compose |
-| **IaC** | Terraform (Yandex Cloud) |
+| **IaC** | Terraform (Yandex Cloud — готовая конфигурация) |
 
 ## 📸 Скриншоты
 
@@ -171,7 +174,8 @@ kubectl port-forward -n opc-monitor service/web 5000:5000
 При каждом push в `main`:
 1. ✅ Автоматическая сборка Docker-образа
 2. ✅ Загрузка в GitHub Container Registry (GHCR)
-3. ✅ Теги: `latest`, `sha-<commit>`, `<branch>`
+3. ✅ **Trivy scan** — проверка на уязвимости (CRITICAL/HIGH)
+4. ✅ Теги: `latest`, `sha-<commit>`, `<branch>`
 
 ### CD — Deploy to Minikube
 
@@ -207,13 +211,50 @@ helm history opc-monitor -n opc-monitor
 helm rollback opc-monitor -n opc-monitor
 ```
 
+## 🔐 Безопасность
+
+### Уровень приложения
+- ✅ **JWT-аутентификация** — flask-jwt-extended
+- ✅ **Rate limiting** — защита от брутфорса (5 попыток/мин на login)
+- ✅ **Security Headers** — Flask-Talisman:
+  - `Content-Security-Policy` — защита от XSS
+  - `X-Frame-Options: DENY` — защита от Clickjacking
+  - `Strict-Transport-Security` — форсирование HTTPS (1 год)
+  - `X-Content-Type-Options: nosniff`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+- ✅ **Non-root user** в Docker (`appuser`)
+- ✅ **Параметризованные SQL-запросы** — SQLAlchemy ORM
+
+### Уровень CI/CD
+- ✅ **Trivy** — сканирование образа на уязвимости (CRITICAL/HIGH)
+- ✅ **GitHub Secrets** для чувствительных данных
+- ✅ **GITHUB_TOKEN** с минимальными правами
+- ✅ **Отчёт Trivy** сохраняется как artifact
+
+### Уровень инфраструктуры
+- ✅ **Kubernetes Secrets** для хранения паролей
+- ✅ **`.gitignore`** исключает секреты
+- ✅ **Security Groups** в Yandex Cloud
+- ✅ **Отдельные сетевые подсети** (public/private)
+
+### Соответствие стандартам
+- ✅ **OWASP Top 10** — покрыты: A01 (Access Control), A02 (Crypto), A03 (Injection), A05 (Misconfiguration), A07 (Auth Failures)
+- ✅ **CIS Docker Benchmark** — non-root user, healthcheck
+
+### Рекомендации для продакшена
+- 🔲 External Secrets Operator (Yandex Lockbox)
+- 🔲 Network Policies между подами
+- 🔲 PodSecurityPolicy
+- 🔲 Secrets rotation каждые 90 дней
+- 🔲 WAF (Cloudflare / Yandex Smart Web Security)
+
 ## 📁 Структура проекта
 
 ```
 opc-monitor/
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml               # CI: сборка + push образа
+│   │   ├── ci.yml               # CI: сборка + Trivy scan + push образа
 │   │   └── cd.yml               # CD: деплой через Helm
 │   └── dependabot.yml           # Автообновление зависимостей
 ├── helm/
@@ -251,11 +292,17 @@ opc-monitor/
 │   ├── prometheus.yml
 │   └── grafana-dashboard.json
 ├── terraform/                   # IaC для Yandex Cloud
+│   ├── versions.tf
+│   ├── variables.tf
 │   ├── main.tf
 │   ├── network.tf
 │   ├── k3s.tf
 │   ├── database.tf
-│   └── ...
+│   ├── outputs.tf
+│   ├── terraform.tfvars.example
+│   └── templates/
+│       ├── k3s-master-cloud-init.yaml
+│       └── k3s-worker-cloud-init.yaml
 ├── docs/
 │   └── screenshots/             # Скриншоты для README
 │       ├── dashboard.png
@@ -282,31 +329,77 @@ opc-monitor/
 
 ## 📊 API Endpoints
 
-| Метод | Endpoint | Описание |
-|-------|----------|----------|
-| `POST` | `/api/auth/login` | Получить JWT-токен |
-| `POST` | `/api/auth/refresh` | Обновить токен |
-| `GET` | `/api/params` | Список параметров |
-| `GET` | `/api/latest` | Последнее измерение |
-| `GET` | `/api/history` | История измерений |
-| `GET` | `/api/alarms` | История аварий |
-| `GET` | `/api/stats` | Статистика |
-| `GET` | `/api/thresholds` | Текущие пороги |
-| `POST` | `/api/thresholds/update` | Обновить пороги |
-| `GET` | `/api/export` | Экспорт данных (CSV) |
-| `GET` | `/health` | Health check |
-| `GET` | `/metrics` | Prometheus метрики |
+| Метод | Endpoint | Описание | Rate Limit |
+|-------|----------|----------|------------|
+| `POST` | `/api/auth/login` | Получить JWT-токен | 5/min |
+| `POST` | `/api/auth/refresh` | Обновить токен | 200/min |
+| `GET` | `/api/params` | Список параметров | 200/min |
+| `GET` | `/api/latest` | Последнее измерение | 200/min |
+| `GET` | `/api/history` | История измерений | 200/min |
+| `GET` | `/api/alarms` | История аварий | 200/min |
+| `GET` | `/api/stats` | Статистика | 200/min |
+| `GET` | `/api/thresholds` | Текущие пороги | 200/min |
+| `POST` | `/api/thresholds/update` | Обновить пороги | 200/min |
+| `GET` | `/api/export` | Экспорт данных (CSV) | 200/min |
+| `POST` | `/api/notify` | Уведомление (внутреннее) | 60/min |
+| `GET` | `/health` | Health check | — |
+| `GET` | `/metrics` | Prometheus метрики | — |
 
 Полная документация: http://localhost:5000/api/docs
 
-## 🔐 Безопасность
+## 🌩️ Infrastructure as Code (Terraform)
 
-- ✅ **JWT-аутентификация** для API
-- ✅ **Kubernetes Secrets** для хранения паролей (не в Git)
-- ✅ **`.gitignore`** исключает секреты
-- ✅ **HTTPS** через Ingress + cert-manager (при деплое в облако)
-- ✅ **Dependabot** автоматически обновляет зависимости
-- ✅ **Security Groups** в облаке ограничивают доступ
+Проект содержит **полную Terraform-конфигурацию** для развёртывания в Yandex Cloud:
+
+### Что создаётся
+
+| Ресурс | Описание |
+|--------|----------|
+| **VPC Network** | Сеть с публичной и приватными подсетями |
+| **NAT Gateway** | Интернет-доступ для приватных подсетей |
+| **Security Group** | Правила firewall для Kubernetes |
+| **k3s Master** | VM с k3s control-plane (Ubuntu 22.04) |
+| **k3s Workers ×2** | VM с k3s агентами в разных зонах |
+| **Managed PostgreSQL** | Кластер БД (s2.micro, 20 GB SSD) |
+| **Cert-manager** | Автоматический TLS через Let's Encrypt |
+
+### Стоимость
+
+| Компонент | Цена/мес |
+|-----------|----------|
+| 3 VM (2 vCPU, 4 GB) | ~6000 ₽ |
+| Managed PostgreSQL | ~2500 ₽ |
+| Object Storage (tfstate) | ~10 ₽ |
+| **Итого** | **~8600 ₽/мес** |
+
+### Использование
+
+```bash
+cd terraform
+
+# 1. Скопировать пример
+cp terraform.tfvars.example terraform.tfvars
+
+# 2. Заполнить: yc_token, yc_cloud_id, yc_folder_id, ssh_public_key
+nano terraform.tfvars
+
+# 3. Инициализация
+terraform init
+
+# 4. Проверка синтаксиса
+terraform validate
+
+# 5. Посмотреть план (без создания ресурсов)
+terraform plan
+
+# 6. Создать инфраструктуру (платно!)
+terraform apply
+
+# 7. Удалить всё
+terraform destroy
+```
+
+> ⚠️ **Внимание:** `terraform apply` создаст платные ресурсы (~8600 ₽/мес). Используйте `terraform destroy` для удаления.
 
 ## 🧪 Тестирование
 
@@ -314,9 +407,19 @@ opc-monitor/
 # Запустить приложение локально
 python web_app.py
 
-# API тесты
+# Проверить health
 curl http://localhost:5000/health
-curl -H "Authorization: Bearer <TOKEN>" http://localhost:5000/api/latest
+
+# Проверить security headers
+curl -I http://localhost:5000/health
+
+# Проверить rate limiting (6 запросов подряд)
+for i in {1..6}; do
+  curl -X POST http://localhost:5000/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"wrong","password":"wrong"}' \
+    -w "Request $i: %{http_code}\n" -o /dev/null
+done
 ```
 
 ## 📝 Лицензия
@@ -334,9 +437,12 @@ curl -H "Authorization: Bearer <TOKEN>" http://localhost:5000/api/latest
 
 - [OPC UA Python](https://github.com/FreeOpcUa/python-opcua)
 - [Flask](https://flask.palletsprojects.com/)
+- [Flask-Talisman](https://github.com/GoogleCloudPlatform/flask-talisman)
+- [Flask-Limiter](https://flask-limiter.readthedocs.io/)
 - [Chart.js](https://www.chartjs.org/)
 - [Kubernetes](https://kubernetes.io/)
 - [Helm](https://helm.sh/)
+- [Trivy](https://github.com/aquasecurity/trivy)
 
 ---
 

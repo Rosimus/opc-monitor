@@ -2,22 +2,28 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --upgrade pip
-
+# Копирование зависимостей
 COPY requirements.txt .
-
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Жёстко удаляем Redis и все его файлы
-RUN pip uninstall -y redis redis-py 2>/dev/null || true
-RUN rm -rf /usr/local/lib/python3.11/site-packages/redis* || true
-RUN rm -rf /usr/local/lib/python3.11/site-packages/redis-*.dist-info || true
-RUN find /usr/local/lib -name "*redis*" -exec rm -rf {} + 2>/dev/null || true
+# Создание непривилегированного пользователя
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-COPY . .
+# Копирование кода с правильными правами
+COPY --chown=appuser:appuser . .
 
-RUN mkdir -p /app/data /app/templates /app/static
+# Создание директорий для данных
+RUN mkdir -p /app/data /app/templates /app/static && \
+    chown -R appuser:appuser /app
 
+# Переключение на непривилегированного пользователя
+USER appuser
+
+# Экспорт портов
 EXPOSE 5000 4840 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')" || exit 1
 
 CMD ["python", "client.py"]
