@@ -21,6 +21,7 @@
 - 📥 **Экспорт данных** в CSV и Excel
 - 🎯 **REST API** с автогенерируемой документацией (Swagger)
 - 📉 **Метрики Prometheus** + **Grafana dashboard as code** (5 панелей, provisioning через ConfigMap)
+- 🔔 **Alertmanager** с правилами алертов (`ServiceDown`, `HighAlarmRate`, `NoMeasurements`, `HighAPILatency`)
 - 🐳 **Docker-образ** с автоматической сборкой
 - ☸️ **Kubernetes-деплой** через kubectl / Helm
 - ⛵ **Helm-чарт** с параметризацией под staging и prod
@@ -32,7 +33,7 @@
 
 ## 🏗️ Архитектура
 
-Проект — это **распределённая система из 7 контейнеров**, объединённых общей сетью и слоем хранения. Каждый сервис выполняет одну функцию; взаимодействие идёт через базу данных, Redis-кэш и HTTP-протоколы.
+Проект — это **распределённая система из 8 контейнеров**, объединённых общей сетью и слоем хранения. Каждый сервис выполняет одну функцию; взаимодействие идёт через базу данных, Redis-кэш и HTTP-протоколы.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -65,8 +66,8 @@
                             │
                             ▼
 ┌──────────────────────────────────────────────────────────┐
-│           Prometheus + Grafana                           │
-│           Мониторинг всей системы (provisioned)          │
+│           Prometheus + Alertmanager + Grafana            │
+│           Мониторинг и алертинг системы                  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -81,7 +82,7 @@
 | **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy |
 | **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3 |
 | **CI/CD** | GitHub Actions, GHCR, self-hosted runner |
-| **Мониторинг** | Prometheus, Grafana (provisioning as code) |
+| **Мониторинг** | Prometheus, Alertmanager, Grafana (provisioning as code) |
 | **Контейнеризация** | Docker, Docker Compose |
 | **IaC** | Terraform (Yandex Cloud) |
 | **Тесты** | pytest, pytest-cov |
@@ -125,15 +126,9 @@
 ### Запуск через Docker Compose
 
 ```bash
-# 1. Клонировать репозиторий
 git clone https://github.com/Rosimus/opc-monitor.git
 cd opc-monitor
-
-# 2. Создать .env из примера
 copy .env.example .env
-# Отредактировать .env (пароли, настройки)
-
-# 3. Запустить
 docker-compose up -d
 ```
 
@@ -142,27 +137,26 @@ docker-compose up -d
 ### Запуск в Kubernetes через Helm (рекомендуется)
 
 ```bash
-# 1. Запустить Minikube
 minikube start --driver=docker --memory=4096 --cpus=4
-
-# 2. Собрать образ
 docker build -t opc-monitor:latest .
 minikube image load opc-monitor:latest
 
-# 3. Установить через Helm
 helm install opc-monitor ./helm/opc-monitor \
   --namespace opc-monitor \
   --create-namespace \
   --values ./helm/opc-monitor/values-prod.yaml
 
-# 4. Проброс портов
 kubectl port-forward -n opc-monitor service/web 5000:5000
 kubectl port-forward -n opc-monitor service/grafana 3000:3000
+kubectl port-forward -n opc-monitor service/prometheus 9090:9090
+kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 ```
 
 **Доступ**:
 - Web UI: http://localhost:5000
 - Grafana: http://localhost:3000 (admin / admin)
+- Prometheus: http://localhost:9090
+- Alertmanager: http://localhost:9093
 
 ## 🔄 CI/CD Pipeline
 
@@ -196,6 +190,55 @@ helm history opc-monitor -n opc-monitor
 helm rollback opc-monitor -n opc-monitor
 ```
 
+## 🚀 Эксплуатация
+
+### Runbook
+
+Инструкция для on-call инженера: диагностика алертов, типовые операции, восстановление после сбоев — в **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.
+
+### SLO / SLI
+
+| Метрика | SLI | SLO |
+|---------|-----|-----|
+| Доступность Web UI | `up{job="opc-monitor"}` | ≥ 99% в месяц |
+| Доступность OPC Client | `up{job="opc-client"}` | ≥ 99% в месяц |
+| Латентность API (p95) | `histogram_quantile(0.95, api_latency_seconds_bucket)` | < 500 ms |
+| Задержка сбора данных | `rate(opc_values[5m])` | > 0 |
+| RTO | — | ≤ 5 минут (helm rollback) |
+| RPO | — | ≤ 24 часа (pg_dump) |
+
+**Error Budget:** 1% недоступности в месяц = ~7.2 часа.
+
+### Алерты
+
+Правила алертов описаны в `monitoring/alerts.yml`. Prometheus отправляет их в Alertmanager, который логирует в stdout (receiver `default`).
+
+| Алерт | Severity | Условие |
+|-------|----------|---------|
+| `ServiceDown` | critical | Сервис недоступен > 1 мин |
+| `HighAlarmRate` | warning | > 0.5 алертов/сек за 5 мин |
+| `NoMeasurements` | warning | Нет измерений > 3 мин |
+| `HighAPILatency` | warning | p95 API > 1 сек за 3 мин |
+
+### Типовые операции
+
+```bash
+# Проверить статус
+kubectl get pods -n opc-monitor
+kubectl get pvc -n opc-monitor
+
+# Перезапустить сервис (замени <service> на web, client, server, grafana, prometheus, alertmanager)
+kubectl rollout restart deployment/web -n opc-monitor
+
+# Откатить релиз
+helm rollback opc-monitor -n opc-monitor
+
+# Посмотреть логи
+kubectl logs -n opc-monitor deployment/web --tail=100
+```
+
+Полный список — в **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.
+
 ## 🔐 Безопасность
 
 ### Уровень приложения
@@ -224,7 +267,7 @@ helm rollback opc-monitor -n opc-monitor
 
 - Симулятор PLC не использует TLS/шифрование OPC UA — это допустимо для демонстрации. В продакшене требуется настроить сертификаты и security policy.
 - Секреты в Helm values хранятся в открытом виде для упрощения. В продакшене используется External Secrets Operator, SOPS или Yandex Lockbox.
-- В CI используется файловый Trivy scan. Образ не сканируется — это можно добавить при необходимости.
+- Alertmanager использует receiver `default` (логирует в stdout). Telegram-интеграция подготовлена, но требует реальных `bot_token` и `chat_id`.
 
 ## 🧪 Тестирование
 
@@ -258,6 +301,8 @@ opc-monitor/
 ├── k8s/                         # Kubernetes-манифесты (kubectl)
 ├── monitoring/
 │   ├── prometheus.yml
+│   ├── alerts.yml               # правила алертов
+│   ├── alertmanager.yml         # конфиг Alertmanager
 │   ├── grafana-datasources.yml
 │   ├── grafana-dashboards.yml
 │   └── grafana-dashboard.json
@@ -265,7 +310,9 @@ opc-monitor/
 ├── tests/
 │   ├── __init__.py
 │   └── test_utils.py
-├── docs/screenshots/
+├── docs/
+│   ├── RUNBOOK.md               # Инструкция для on-call
+│   └── screenshots/
 ├── templates/index.html
 ├── client.py                    # OPC UA клиент
 ├── server.py                    # OPC UA симулятор (PLCSimulator)
@@ -301,8 +348,8 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform validate
 terraform plan
-terraform apply        # создаст платные ресурсы
-terraform destroy      # удалит
+terraform apply
+terraform destroy
 ```
 
 ## 📊 API Endpoints
