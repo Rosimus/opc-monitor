@@ -108,7 +108,7 @@ services:
       start_period: 15s
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.51.0
     ports:
       - "9090:9090"
     volumes:
@@ -121,7 +121,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.5
     ports:
       - "3000:3000"
     volumes:
@@ -134,6 +134,8 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_LIVE_ENABLED=false
+      - GF_PLUGINS_PREINSTALL_DISABLED=true
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/opc-monitor.json
     depends_on:
       - prometheus
