@@ -1,0 +1,75 @@
+groups:
+  - name: opc-monitor-alerts
+    interval: 30s
+    rules:
+      # ============================================
+      # Доступность сервисов
+      # ============================================
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: "{{ $labels.job }}"
+        annotations:
+          summary: "Сервис {{ $labels.job }} недоступен"
+          description: "Инстанс {{ $labels.instance }} не отвечает более 1 минуты."
+
+      # ============================================
+      # Метрики приложения
+      # ============================================
+      - alert: HighAlarmRate
+        expr: rate(opc_alerts_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          component: opc-client
+        annotations:
+          summary: "Высокая частота аварий"
+          description: "Частота алертов {{ $value | humanize }} в секунду за последние 5 минут."
+
+      - alert: NoMeasurements
+        expr: rate(opc_values[2m]) == 0
+        for: 3m
+        labels:
+          severity: warning
+          component: opc-client
+        annotations:
+          summary: "Нет новых измерений"
+          description: "OPC UA клиент не отправляет новые измерения более 3 минут."
+
+      # ============================================
+      # API веб-приложения
+      # ============================================
+      - alert: HighAPIErrorRate
+        expr: rate(api_requests_total[5m]) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: web
+        annotations:
+          summary: "Высокая нагрузка на API"
+          description: "Более 10 запросов в секунду к {{ $labels.endpoint }}."
+
+      - alert: HighAPILatency
+        expr: histogram_quantile(0.95, sum(rate(api_latency_seconds_bucket[5m])) by (le)) > 1
+        for: 3m
+        labels:
+          severity: warning
+          component: web
+        annotations:
+          summary: "Высокая латентность API (p95)"
+          description: "p95 латентности API > 1 секунды в течение 3 минут."
+
+      # ============================================
+      # Ресурсы контейнеров
+      # ============================================
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(container_cpu_usage_seconds_total[5m])) * 100) < 20
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Высокая нагрузка на CPU ({{ $labels.instance }})"
+          description: "CPU загружен более чем на 80% в течение 5 минут."

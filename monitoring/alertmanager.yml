@@ -1,0 +1,61 @@
+global:
+  resolve_timeout: 5m
+
+# ============================================
+# Шаблоны сообщений
+# ============================================
+templates: []
+
+# ============================================
+# Маршрутизация алертов
+# ============================================
+route:
+  # Группировка по имени и severity
+  group_by: ['alertname', 'severity']
+  # Ждём 10 секунд, чтобы собрать алерты в одну группу
+  group_wait: 10s
+  # Обновляем каждые 30 секунд
+  group_interval: 30s
+  # Повторяем уведомление каждые 3 часа
+  repeat_interval: 3h
+  # По умолчанию — null receiver (логирует)
+  receiver: default
+
+  routes:
+    # Критические алерты — в Telegram
+    - match:
+        severity: critical
+      receiver: telegram
+      continue: true
+
+# ============================================
+# Получатели уведомлений
+# ============================================
+receivers:
+  # Заглушка — ничего не отправляет, только логирует в stdout
+  - name: default
+
+  # Telegram (используется, если заданы TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID)
+  - name: telegram
+    telegram_configs:
+      - bot_token: "${TELEGRAM_BOT_TOKEN}"
+        chat_id: ${TELEGRAM_CHAT_ID}
+        parse_mode: 'HTML'
+        message: |
+          🚨 <b>{{ .GroupLabels.alertname }}</b>
+          <b>Severity:</b> {{ .GroupLabels.severity }}
+          {{ range .Alerts }}
+          <b>{{ .Annotations.summary }}</b>
+          {{ .Annotations.description }}
+          {{ end }}
+
+# ============================================
+# Подавление дублей
+# ============================================
+inhibit_rules:
+  # Если сервис недоступен — не спамить другими алертами от него
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']
