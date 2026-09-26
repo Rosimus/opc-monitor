@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opc-monitor
+  namespace: argocd
+  labels:
+    app: opc-monitor
+    managed-by: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/Rosimus/opc-monitor.git
+    targetRevision: main
+    path: helm/opc-monitor
+    helm:
+      valueFiles:
+        - values-prod.yaml
+      parameters:
+        - name: image.pullPolicy
+          value: IfNotPresent
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: opc-monitor
+
+  # Игнорируем различия, которыми управляют другие инструменты
+  ignoreDifferences:
+    # Image tag — управляется CD-пайплайном
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/spec/containers/0/image
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/template/spec/containers/0/image
+    # ArgoCD tracking annotations — добавляются автоматически
+    - group: ""
+      kind: Service
+      jsonPointers:
+        - /metadata/annotations/argocd.argoproj.io~1tracking-id
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /metadata/annotations/argocd.argoproj.io~1tracking-id
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /metadata/annotations/argocd.argoproj.io~1tracking-id
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+      - PrunePropagationPolicy=foreground
+      - RespectIgnoreDifferences=true

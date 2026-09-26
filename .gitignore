@@ -34,6 +34,7 @@ wheels/
 *.sqlite3
 postgres_data/
 redis_data/
+loki_data/
 
 # Data files
 data/
@@ -111,3 +112,10 @@ terraform/terraform.rc
 # ============================================
 helm/opc-monitor/values-secrets.yaml
 !helm/opc-monitor/values-secrets.yaml.example
+
+# ============================================
+# Temporary curl output / scratch files
+# ============================================
+grafana-login.html
+*.tmp
+*.bak
