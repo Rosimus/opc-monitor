@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/Rosimus/opc-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/ci.yml)
 [![CD](https://github.com/Rosimus/opc-monitor/actions/workflows/cd.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/cd.yml)
-[![Release](https://img.shields.io/github/v/release/Rosimus/opc-monitor)](https://github.com/Rosimus/opc-monitor/releases)
 [![Container Registry](https://img.shields.io/badge/registry-ghcr.io-blue)](https://github.com/Rosimus/opc-monitor/pkgs/container/opc-monitor)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
@@ -10,7 +9,7 @@
 [![Tests](https://img.shields.io/badge/tests-29%20passed-brightgreen)](#-тестирование)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Система мониторинга OPC UA серверов с веб-интерфейсом, алертами, аналитикой и полным CI/CD pipeline.
+Система мониторинга промышленного оборудования на OPC UA с веб-интерфейсом, алертами, аналитикой и полным CI/CD pipeline.
 
 ## ✨ Возможности
 
@@ -24,7 +23,7 @@
 - 📉 **Метрики Prometheus** + **Grafana dashboard as code** (5 панелей, provisioning через ConfigMap)
 - 🐳 **Docker-образ** с автоматической сборкой
 - ☸️ **Kubernetes-деплой** через kubectl / Helm
-- ⛵ **Helm-чарт** с параметризацией для multi-environment
+- ⛵ **Helm-чарт** с параметризацией под staging и prod
 - 🌩️ **Terraform** — IaC для Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
 - ✅ **29 pytest-тестов** в CI pipeline
@@ -32,6 +31,8 @@
 - 🛡️ **Security Hardened** — non-root, security headers, rate limiting, Trivy scan
 
 ## 🏗️ Архитектура
+
+Проект — это **распределённая система из 7 контейнеров**, объединённых общей сетью и слоем хранения. Каждый сервис выполняет одну функцию; взаимодействие идёт через базу данных, Redis-кэш и HTTP-протоколы.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -165,7 +166,7 @@ kubectl port-forward -n opc-monitor service/grafana 3000:3000
 
 ## 🔄 CI/CD Pipeline
 
-Проект использует **полностью автоматизированный CI/CD** через GitHub Actions:
+Проект использует **полностью автоматизированный CI/CD** через GitHub Actions.
 
 ### CI — Test, Build & Push
 
@@ -187,17 +188,6 @@ kubectl port-forward -n opc-monitor service/grafana 3000:3000
 6. ✅ Публикует summary с состоянием подов
 
 **Время от `git push` до работающего приложения: ~60 секунд** ⚡
-
-### Как использовать
-
-```bash
-# Просто внесите изменения и запушьте:
-git add .
-git commit -m "Your changes"
-git push
-
-# Дальше — всё автоматически!
-```
 
 ### Откат
 
@@ -225,22 +215,22 @@ helm rollback opc-monitor -n opc-monitor
 - ✅ **securityContext fsGroup: 472** для Grafana
 - ✅ **Kubernetes Secrets** для хранения паролей
 - ✅ **Security Groups** в Yandex Cloud
-- ✅ **Отдельные сетевые подсети** (public/private)
 
 ### Соответствие стандартам
 - ✅ **OWASP Top 10** — A01, A02, A03, A05, A07
 - ✅ **CIS Docker Benchmark** — non-root user, healthcheck
 
+### Известные ограничения (для пет-проекта)
+
+- Симулятор PLC не использует TLS/шифрование OPC UA — это допустимо для демонстрации. В продакшене требуется настроить сертификаты и security policy.
+- Секреты в Helm values хранятся в открытом виде для упрощения. В продакшене используется External Secrets Operator, SOPS или Yandex Lockbox.
+- В CI используется файловый Trivy scan. Образ не сканируется — это можно добавить при необходимости.
+
 ## 🧪 Тестирование
 
 ```bash
-# Установить зависимости
 pip install -r requirements.txt
-
-# Запустить тесты
 pytest tests/ -v
-
-# С покрытием
 pytest tests/ -v --cov=. --cov-report=term-missing
 ```
 
@@ -250,9 +240,49 @@ pytest tests/ -v --cov=. --cov-report=term-missing
 - Конвертеры температуры и давления
 - Лейблы единиц измерения
 
+## 📁 Структура проекта
+
+```
+opc-monitor/
+├── .github/workflows/           # CI/CD
+│   ├── ci.yml                   # tests + build + Trivy + push
+│   └── cd.yml                   # deploy через Helm
+├── helm/opc-monitor/            # Helm-чарт
+│   ├── Chart.yaml
+│   ├── values.yaml
+│   ├── values-staging.yaml
+│   ├── values-prod.yaml
+│   ├── dashboards/
+│   │   └── opc-monitor.json
+│   └── templates/
+├── k8s/                         # Kubernetes-манифесты (kubectl)
+├── monitoring/
+│   ├── prometheus.yml
+│   ├── grafana-datasources.yml
+│   ├── grafana-dashboards.yml
+│   └── grafana-dashboard.json
+├── terraform/                   # IaC для Yandex Cloud
+├── tests/
+│   ├── __init__.py
+│   └── test_utils.py
+├── docs/screenshots/
+├── templates/index.html
+├── client.py                    # OPC UA клиент
+├── server.py                    # OPC UA симулятор (PLCSimulator)
+├── web_app.py                   # Flask приложение
+├── db.py                        # SQLAlchemy + Redis
+├── utils.py
+├── config.yaml
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── pytest.ini
+└── README.md
+```
+
 ## 🌩️ Infrastructure as Code (Terraform)
 
-Проект содержит **полную Terraform-конфигурацию** для развёртывания в Yandex Cloud:
+Полная Terraform-конфигурация для развёртывания в Yandex Cloud:
 
 | Ресурс | Описание |
 |--------|----------|
@@ -275,62 +305,6 @@ terraform apply        # создаст платные ресурсы
 terraform destroy      # удалит
 ```
 
-## 📁 Структура проекта
-
-```
-opc-monitor/
-├── .github/
-│   ├── workflows/
-│   │   ├── ci.yml               # CI: tests + build + Trivy + push
-│   │   └── cd.yml               # CD: deploy через Helm
-│   └── dependabot.yml
-├── helm/
-│   └── opc-monitor/             # Helm-чарт
-│       ├── Chart.yaml
-│       ├── values.yaml
-│       ├── values-staging.yaml
-│       ├── values-prod.yaml
-│       ├── dashboards/
-│       │   └── opc-monitor.json
-│       └── templates/
-│           ├── _helpers.tpl
-│           ├── pvc.yaml
-│           ├── secret.yaml
-│           ├── configmap.yaml
-│           ├── postgres.yaml
-│           ├── redis.yaml
-│           ├── server.yaml
-│           ├── client.yaml
-│           ├── web.yaml
-│           ├── prometheus.yaml
-│           ├── grafana.yaml
-│           ├── ingress.yaml
-│           └── hpa.yaml
-├── k8s/                         # Kubernetes-манифесты (kubectl)
-├── monitoring/
-│   ├── prometheus.yml
-│   ├── grafana-datasources.yml       # datasource as code
-│   ├── grafana-dashboards.yml        # provider as code
-│   └── grafana-dashboard.json        # dashboard as code
-├── terraform/                   # IaC для Yandex Cloud
-├── tests/                       # pytest
-│   ├── __init__.py
-│   └── test_utils.py
-├── docs/screenshots/
-├── templates/index.html
-├── client.py                    # OPC UA клиент
-├── server.py                    # OPC UA симулятор (random walk)
-├── web_app.py                   # Flask приложение
-├── db.py                        # SQLAlchemy + Redis
-├── utils.py
-├── config.yaml
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── pytest.ini
-└── README.md
-```
-
 ## 📊 API Endpoints
 
 | Метод | Endpoint | Описание | Rate Limit |
@@ -345,7 +319,6 @@ opc-monitor/
 | `GET` | `/api/thresholds` | Текущие пороги | 200/min |
 | `POST` | `/api/thresholds/update` | Обновить пороги | 200/min |
 | `GET` | `/api/export` | Экспорт данных (CSV) | 200/min |
-| `POST` | `/api/notify` | Уведомление (внутреннее) | 60/min |
 | `GET` | `/health` | Health check | — |
 | `GET` | `/metrics` | Prometheus метрики | — |
 
@@ -353,7 +326,7 @@ opc-monitor/
 
 ## 📝 Лицензия
 
-Проект распространяется под лицензией **MIT**. См. [LICENSE](LICENSE).
+MIT. См. [LICENSE](LICENSE).
 
 ## 👤 Автор
 
@@ -361,17 +334,6 @@ opc-monitor/
 
 - GitHub: [@Rosimus](https://github.com/Rosimus)
 - Email: rosimus854@gmail.com
-
-## 🙏 Благодарности
-
-- [OPC UA Python](https://github.com/FreeOpcUa/python-opcua)
-- [Flask](https://flask.palletsprojects.com/)
-- [Flask-Talisman](https://github.com/GoogleCloudPlatform/flask-talisman)
-- [Flask-Limiter](https://flask-limiter.readthedocs.io/)
-- [Chart.js](https://www.chartjs.org/)
-- [Kubernetes](https://kubernetes.io/)
-- [Helm](https://helm.sh/)
-- [Trivy](https://github.com/aquasecurity/trivy)
 
 ---
 
