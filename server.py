@@ -13,7 +13,6 @@ import signal
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Dict, Optional
 
 from opcua import Server
@@ -28,6 +27,13 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger("plc-simulator")
+
+# Понижаем уровень для шумных библиотек opcua
+logging.getLogger("opcua").setLevel(logging.WARNING)
+logging.getLogger("opcua.server").setLevel(logging.WARNING)
+logging.getLogger("opcua.client").setLevel(logging.WARNING)
+logging.getLogger("opcua.server.address_space").setLevel(logging.WARNING)
+logging.getLogger("opcua.server.binary_server_asyncio").setLevel(logging.WARNING)
 
 
 # ============================================
