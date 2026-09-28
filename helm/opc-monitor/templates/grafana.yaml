@@ -33,7 +33,7 @@ data:
           maxLines: 1000
           derivedFields:
             - datasourceUid: jaeger
-              matcherRegex: "trace_id[=:\"\\s]+([a-f0-9]{32})"
+              matcherRegex: 'trace_id[^a-f0-9]*([a-f0-9]{32})'
               name: TraceID
               url: "$${__value.raw}"
       - name: Jaeger
