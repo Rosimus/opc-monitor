@@ -72,7 +72,7 @@ spec:
                 - ALL
       containers:
         - name: web
-          image: ghcr.io/rosimus/opc-monitor:v12-minimal
+          image: ghcr.io/rosimus/opc-monitor:v14-multistage
           imagePullPolicy: IfNotPresent
           command: ["gunicorn", "-k", "gthread", "-w", "1", "web_app:app", "-b", "0.0.0.0:5000"]
           securityContext:

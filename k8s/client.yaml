@@ -50,7 +50,7 @@ spec:
                 - ALL
       containers:
         - name: client
-          image: ghcr.io/rosimus/opc-monitor:v12-minimal
+          image: ghcr.io/rosimus/opc-monitor:v14-multistage
           imagePullPolicy: IfNotPresent
           command: ["python", "client.py"]
           securityContext:

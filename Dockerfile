@@ -1,13 +1,34 @@
+# ============================================
+# Stage 1: Builder — ставит зависимости в изолированный venv
+# ============================================
+FROM python:3.11-slim AS builder
+
+# --copies: venv копирует python-бинарь, а не symlink
+# (symlink сломается при COPY между stages)
+RUN python -m venv --copies /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+
+COPY requirements.txt .
+# hadolint ignore=DL3013
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y pip setuptools wheel
+
+# ============================================
+# Stage 2: Runtime — минимальный образ с venv из builder
+# ============================================
 FROM python:3.11-slim
 
-WORKDIR /app
+# Копируем готовый venv
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Устанавливаем зависимости приложения (все версии закреплены в requirements.txt),
-# затем удаляем билд-инструменты (pip/setuptools/wheel) — приложению они в runtime
-# не нужны, а их vendored-копии тянут CVE-2026-23949 и CVE-2026-24049.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip uninstall -y pip setuptools wheel
+WORKDIR /app
 
 # Непривилегированный пользователь с фиксированным UID/GID 1000
 # (совпадает с runAsUser/runAsGroup в k8s-манифестах)
@@ -20,6 +41,13 @@ COPY --chown=1000:1000 . .
 # Создаём директории для данных
 RUN mkdir -p /app/data /app/templates /app/static && \
     chown -R 1000:1000 /app
+
+# Удаляем setuptools/pip/wheel из базового Python (в /usr/local).
+# Наш venv в /opt/venv самодостаточен, а vendored-копии setuptools тянут
+# CVE-2026-23949 (jaraco.context) и CVE-2026-24049 (wheel).
+RUN rm -rf /usr/local/lib/python3.11/site-packages/setuptools* \
+           /usr/local/lib/python3.11/site-packages/pip* \
+           /usr/local/lib/python3.11/site-packages/wheel*
 
 # Переключаемся на непривилегированного пользователя (числовой UID)
 USER 1000:1000
