@@ -1,7 +1,6 @@
 """
 Тесты для utils.py — чистые функции без внешних зависимостей.
 """
-import pytest
 from datetime import datetime
 
 from utils import (

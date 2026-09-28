@@ -1,6 +1,6 @@
 import yaml
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional
 
 def load_config() -> Dict[str, Any]:
     with open("/app/config.yaml", 'r') as f:

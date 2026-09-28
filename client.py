@@ -1,12 +1,9 @@
 import time
-import yaml
-import logging
-import logging.handlers
 import os
 import ssl
 import sys
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 from opcua import Client
 import smtplib

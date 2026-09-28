@@ -5,7 +5,6 @@ Pytest-фикстуры для тестирования API.
 реальных PostgreSQL, Redis и config.yaml при запуске тестов.
 """
 import os
-import sys
 from unittest.mock import MagicMock
 
 # ============================================================

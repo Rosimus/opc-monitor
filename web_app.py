@@ -6,15 +6,13 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_swagger_ui import get_swaggerui_blueprint
 import io
-import json
 import os
 import secrets
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
-from utils import load_config, get_param_status
+from typing import Dict, Any, List
+from utils import load_config
 from db import Database
-import gzip
 from time import time
 from functools import wraps
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
