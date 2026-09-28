@@ -75,7 +75,7 @@ spec:
         - name: web
           image: {{ include "opc-monitor.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["gunicorn", "-k", "gthread", "-w", "2", "web_app:app", "-b", "0.0.0.0:5000"]
+          command: ["gunicorn", "-k", "gthread", "-w", "2", "web_app:app", "-b", "0.0.0.0:5000", "--no-control"]
           securityContext:
             allowPrivilegeEscalation: false
             privileged: false
