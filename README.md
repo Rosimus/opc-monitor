@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Rosimus/opc-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/ci.yml)
 [![CD](https://github.com/Rosimus/opc-monitor/actions/workflows/cd.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/cd.yml)
+[![CodeQL](https://github.com/Rosimus/opc-monitor/actions/workflows/codeql.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/codeql.yml)
 [![Container Registry](https://img.shields.io/badge/registry-ghcr.io-blue)](https://github.com/Rosimus/opc-monitor/pkgs/container/opc-monitor)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
@@ -41,7 +42,7 @@
 - 🔀 **ArgoCD** — GitOps-подход (pull-модель деплоя)
 - ✅ **41 тест** (29 unit + 12 integration) в CI pipeline
 - 📦 **GHCR** — автоматическая загрузка образов
-- 🛡️ **Security Hardened** — полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint
+- 🛡️ **Security Hardened** — полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint/CodeQL
 
 ## 🏗️ Архитектура
 
@@ -96,7 +97,7 @@
 | **Frontend** | Vanilla JS, Chart.js, Socket.IO client |
 | **База данных** | PostgreSQL 15, Redis 7 (кэш) |
 | **Аутентификация** | JWT (flask-jwt-extended) |
-| **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy, Bandit, Semgrep, Checkov |
+| **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy, Bandit, Semgrep, Checkov, CodeQL |
 | **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3 |
 | **GitOps** | ArgoCD |
 | **CI/CD** | GitHub Actions, GHCR, self-hosted runner, Dependabot |
@@ -230,6 +231,17 @@ kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 - **terraform** — Yandex Cloud provider
 
 Cooldown 7 дней — новые версии не подхватываются сразу, ждём проверки сообществом.
+
+### 🔍 CodeQL
+
+GitHub Advanced Security анализирует Python-код при каждом push и еженедельно:
+
+- SQL injection, XSS, path traversal
+- Небезопасная десериализация
+- Hardcoded credentials
+- Другие CWE-паттерны
+
+Результаты → **Security → Code scanning alerts**.
 
 ### GitOps с ArgoCD
 
@@ -373,6 +385,7 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 - ✅ **Bandit** — SAST, 0 находок
 - ✅ **pip-audit** — SCA, 0 CVE
 - ✅ **Semgrep** — SAST (p/python, p/flask, p/owasp-top-ten)
+- ✅ **CodeQL** — Python SAST (GitHub Advanced Security)
 - ✅ **Trivy** — образ: 0 CVE; Terraform config scan
 - ✅ **Hadolint** — Dockerfile: 0 WARN
 - ✅ **Checkov** — Kubernetes, Helm, Terraform
@@ -384,6 +397,24 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 - ✅ **OWASP Top 10** — A01, A02, A03, A05, A07
 - ✅ **CIS Docker Benchmark** — non-root user, healthcheck
 - ✅ **CIS Kubernetes Benchmark** — securityContext, resource limits, NetworkPolicy
+
+### 📊 Сводка сканеров
+
+| Сканер | Что проверяет | Результат |
+|--------|---------------|-----------|
+| **Bandit** | Python SAST | ✅ 0 находок |
+| **pip-audit** | Зависимости (CVE) | ✅ 0 CVE |
+| **Semgrep** | Python + OWASP Top 10 | ✅ 0 находок |
+| **CodeQL** | Python SAST (GitHub) | ✅ 0 alerts |
+| **Trivy image** | Docker-образ | ✅ 0 CVE (CRITICAL/HIGH) |
+| **Hadolint** | Dockerfile | ✅ 0 WARN |
+| **kube-score** | K8s манифесты | ⚠️ ~24 CRITICAL (приняты) |
+| **kubesec** | K8s поды | 🟡 9/10 (web), 7/10 (client, server) |
+| **Checkov** | K8s + Helm + Terraform | ⚠️ 967 Passed / 48 Failed (приняты) |
+| **OWASP ZAP** | Web API | ✅ 0 FAIL, 4 WARN (не-уязвимости) |
+| **jwt_tool** | JWT alg:none | ✅ Устойчив |
+
+Отчёты и обоснование принятых рисков — в [SECURITY.md](SECURITY.md).
 
 ### Известные ограничения
 
@@ -477,7 +508,8 @@ pytest tests/ -v --cov=. --cov-report=term-missing
 opc-monitor/
 ├── .github/workflows/           # CI/CD
 │   ├── ci.yml                   # tests + build + Trivy + push
-│   └── cd.yml                   # deploy через Helm
+│   ├── cd.yml                   # deploy через Helm
+│   └── codeql.yml               # SAST (GitHub Advanced Security)
 ├── .github/dependabot.yml       # auto-update deps + SHA-pins
 ├── argocd/
 │   └── application.yaml         # ArgoCD Application (GitOps)

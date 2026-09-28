@@ -53,7 +53,8 @@ Row-Level Security не внедрён — приложение single-tenant, �
 - **Hadolint** — Dockerfile: 0 WARN
 - **kube-score** / **kubesec** — анализ манифестов
 - **Checkov** — Kubernetes, Helm, Terraform
-- **Dependabot** — обновление зависимостей и SHA-пины GitHub Actions
+- **Dependabot** — 8 PR'ов смержено (flask-jwt-extended 4.7.4, sqlalchemy 2.0.54, gunicorn 26.2.0, actions/checkout 7, OTel 1.44.0)
+- **CodeQL** — GitHub Advanced Security (Python SAST, еженедельно)
 
 ## Аудит (текущий статус)
 
@@ -61,7 +62,8 @@ Row-Level Security не внедрён — приложение single-tenant, �
 |------|------------|-----------|
 | SAST | Bandit | 0 находок |
 | SCA | pip-audit | 0 CVE |
-| SAST | Semgrep | 10 WARN (workflows, закроет Dependabot) |
+| SAST | Semgrep | 0 находок (workflows закрыты Dependabot) |
+| SAST | CodeQL | GitHub Advanced Security |
 | JWT | jwt_tool (alg:none) | Устойчив — все подделки отклонены (422) |
 | API | OWASP ZAP | 0 FAIL, 4 WARN (все не-уязвимости) |
 | БД | SQL-аудит RLS/ролей | Суперюзер понижен, RLS не требуется |
