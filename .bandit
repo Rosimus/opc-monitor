@@ -1,0 +1,3 @@
+[bandit]
+exclude = ./.venv,./.venv-audit,./tests,./helm,./terraform,./k8s,./monitoring,./security-audit,./.git,./alembic
+skips = B101,B311

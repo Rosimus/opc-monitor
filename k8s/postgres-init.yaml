@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: opc-monitor
+  labels:
+    app: postgres
+data:
+  init.sql: |
+    -- Выполняется ТОЛЬКО при первичной инициализации БД (пустой PGDATA).
+    -- При обычном рестарте не запускается, потому что PGDATA уже создан.
+    --
+    -- Понижаем привилегии opc_user: приложение не должно быть суперюзером.
+    ALTER USER opc_user NOSUPERUSER NOCREATEROLE NOCREATEDB;
+    -- Убираем избыточные привилегии на таблицы (приложению нужен только CRUD).
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLES FROM opc_user;

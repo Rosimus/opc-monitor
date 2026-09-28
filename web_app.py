@@ -8,6 +8,7 @@ from flask_swagger_ui import get_swaggerui_blueprint
 import io
 import json
 import os
+import secrets
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -19,66 +20,18 @@ from functools import wraps
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'dev-secret-key')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
-
-CORS(app, origins=['http://localhost:5000', 'http://localhost:3000'])
-jwt = JWTManager(app)
 
 # ============================================
-# Security Headers (Flask-Talisman)
+# Environment
 # ============================================
-Talisman(
-    app,
-    force_https=False,
-    strict_transport_security=True,
-    strict_transport_security_max_age=31536000,
-    content_security_policy={
-        'default-src': "'self'",
-        'script-src': [
-            "'self'",
-            "'unsafe-inline'",
-            'https://cdn.jsdelivr.net',
-            'https://cdn.socket.io',
-            'https://cdnjs.cloudflare.com',
-        ],
-        'style-src': ["'self'", "'unsafe-inline'"],
-        'img-src': ["'self'", 'data:', 'https:'],
-        'connect-src': ["'self'", 'wss:', 'https:', 'ws:'],
-        'font-src': ["'self'", 'data:'],
-        'frame-ancestors': "'none'",
-    },
-    frame_options='DENY',
-    referrer_policy='strict-origin-when-cross-origin',
-    session_cookie_secure=False,
-    session_cookie_http_only=True,
+PRODUCTION = (
+    os.environ.get('FLASK_ENV') == 'production'
+    or os.environ.get('ENVIRONMENT') == 'production'
 )
 
 # ============================================
-# Rate Limiting (Flask-Limiter)
+# Logging с trace_id — настраиваем ДО всего остального
 # ============================================
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["1000 per hour", "200 per minute"],
-    storage_uri="memory://",
-    strategy="fixed-window",
-)
-
-# --- Swagger ---
-SWAGGER_URL = '/api/docs'
-API_URL = '/static/swagger.json'
-try:
-    swaggerui_blueprint = get_swaggerui_blueprint(SWAGGER_URL, API_URL)
-    app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
-except Exception:
-    pass
-
-# --- Метрики ---
-api_requests = Counter('api_requests_total', 'Total API requests', ['endpoint', 'method'])
-api_latency = Histogram('api_latency_seconds', 'API latency', ['endpoint'])
-
-# --- Логирование с trace_id ---
 from opentelemetry import trace as otel_trace
 
 
@@ -95,12 +48,112 @@ class TraceIdFilter(logging.Filter):
         return True
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] trace_id=%(trace_id)s %(message)s',
-)
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(logging.Formatter(
+    '%(asctime)s [%(levelname)s] trace_id=%(trace_id)s %(message)s'
+))
+_log_handler.addFilter(TraceIdFilter())
+
+_root_logger = logging.getLogger()
+_root_logger.handlers.clear()
+_root_logger.addHandler(_log_handler)
+_root_logger.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
-logger.addFilter(TraceIdFilter())
+
+# ============================================
+# JWT configuration
+# ============================================
+_jwt_secret = os.environ.get('JWT_SECRET_KEY')
+_WEAK_SECRETS = {'dev-secret-key', 'change-me', 'changeme', 'secret', 'jwt-secret'}
+if not _jwt_secret or _jwt_secret in _WEAK_SECRETS:
+    if PRODUCTION:
+        raise RuntimeError(
+            "JWT_SECRET_KEY must be set to a strong value in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    _jwt_secret = secrets.token_hex(32)
+    logger.warning(
+        "JWT_SECRET_KEY not set or weak. Generated an ephemeral one. "
+        "DO NOT use this in production."
+    )
+
+app.config['SECRET_KEY'] = _jwt_secret
+app.config['JWT_SECRET_KEY'] = _jwt_secret
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(
+    minutes=int(os.environ.get('JWT_ACCESS_TOKEN_MINUTES', '60'))
+)
+
+# CORS — в проде через env, по умолчанию localhost только для dev
+_cors_origins = os.environ.get(
+    'CORS_ORIGINS',
+    'http://localhost:5000,http://localhost:3000'
+).split(',')
+CORS(app, origins=_cors_origins)
+jwt = JWTManager(app)
+
+# ============================================
+# Security Headers (Flask-Talisman)
+# ============================================
+Talisman(
+    app,
+    force_https=PRODUCTION,
+    strict_transport_security=PRODUCTION,
+    strict_transport_security_max_age=31536000,
+    content_security_policy={
+        'default-src': "'self'",
+        # 'unsafe-inline' оставлен до выноса inline-скрипта (строка 908 index.html) в static/js/app.js
+        # CDN-библиотеки (chart.js, socket.io, xlsx, jwt-decode) вынесены в static/js/
+        # — внешние источники в CSP больше не нужны, wildcards убраны.
+        'script-src': ["'self'", "'unsafe-inline'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:'],
+        'connect-src': ["'self'"],
+        'font-src': ["'self'", 'data:'],
+        'frame-ancestors': "'none'",
+        'object-src': "'none'",
+        'base-uri': "'self'",
+        'form-action': "'self'",
+    },
+    frame_options='DENY',
+    referrer_policy='strict-origin-when-cross-origin',
+    session_cookie_secure=PRODUCTION,
+    session_cookie_http_only=True,
+    permissions_policy={
+        'camera': "()",
+        'microphone': "()",
+        'geolocation': "()",
+        'payment': "()",
+        'usb': "()",
+    },
+)
+
+# ============================================
+# Rate Limiting (Flask-Limiter)
+# ============================================
+_limiter_storage = os.environ.get('REDIS_URL') or os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["1000 per hour", "200 per minute"],
+    storage_uri=_limiter_storage,
+    strategy="fixed-window",
+    default_limits_exempt_when=lambda: request.endpoint in ('health', 'metrics'),
+)
+
+# --- Swagger ---
+SWAGGER_URL = '/api/docs'
+API_URL = '/static/swagger.json'
+try:
+    swaggerui_blueprint = get_swaggerui_blueprint(SWAGGER_URL, API_URL)
+    app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
+except Exception as e:
+    logger.debug("Swagger UI не зарегистрирован: %s", e)
+
+# --- Метрики ---
+api_requests = Counter('api_requests_total', 'Total API requests', ['endpoint', 'method'])
+api_latency = Histogram('api_latency_seconds', 'API latency', ['endpoint'])
 
 # --- Загрузка конфига ---
 config: Dict[str, Any] = load_config()
@@ -113,6 +166,20 @@ db: Database = Database(params_list)
 # --- OpenTelemetry ---
 from tracing import init_tracing
 init_tracing(app, engine=db.engine)
+
+
+# ============================================
+# Дополнительные security headers (не покрываются Talisman)
+# ============================================
+@app.after_request
+def add_security_headers(response):
+    """HTML не кэшируем + COEP для защиты от side-channel атак."""
+    if response.content_type and 'text/html' in response.content_type:
+        response.headers['Cache-Control'] = 'no-store, must-revalidate'
+    # COEP: безопасно, потому что все скрипты теперь same-origin (static/js/)
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    return response
 
 
 def load_thresholds() -> Dict[str, Dict[str, Any]]:
@@ -144,14 +211,24 @@ ALL_FIELDS: List[str] = ['timestamp', 'status'] + param_ids
 @app.route('/api/auth/login', methods=['POST'])
 @limiter.limit("5 per minute")
 def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
+    data = request.get_json(silent=True) or {}
+    username = data.get('username') or ''
+    password = data.get('password') or ''
 
     admin_user = os.environ.get('ADMIN_USER', 'admin')
-    admin_pass = os.environ.get('ADMIN_PASSWORD', 'admin')
+    admin_pass = os.environ.get('ADMIN_PASSWORD')
 
-    if username == admin_user and password == admin_pass:
+    if not admin_pass:
+        if PRODUCTION:
+            logger.error("ADMIN_PASSWORD не задан — вход запрещён")
+            return jsonify({'error': 'Server misconfigured'}), 500
+        admin_pass = 'admin'
+        logger.warning("ADMIN_PASSWORD не задан — используется dev-пароль 'admin'")
+
+    user_ok = secrets.compare_digest(username, admin_user)
+    pass_ok = secrets.compare_digest(password, admin_pass)
+
+    if user_ok and pass_ok:
         access_token = create_access_token(identity=username)
         return jsonify({'access_token': access_token}), 200
 
@@ -197,8 +274,8 @@ def health():
 
         return jsonify({'status': 'degraded', 'message': 'No recent data'}), 503
     except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error("Health check error: %s", e, exc_info=True)
+        return jsonify({'status': 'error', 'message': 'Internal error'}), 500
 
 
 @app.route('/metrics')
@@ -238,7 +315,7 @@ def thresholds_history():
 @track_metrics('thresholds_update')
 @jwt_required()
 def update_thresholds():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     param_id = data.get('param_id')
     if not param_id:
         return jsonify({'error': 'param_id required'}), 400
@@ -251,7 +328,7 @@ def update_thresholds():
         if val is not None:
             try:
                 thresholds[key] = float(val)
-            except ValueError:
+            except (ValueError, TypeError):
                 return jsonify({'error': f'Invalid value for {key}'}), 400
 
     user = get_jwt_identity()
@@ -320,7 +397,7 @@ def stats():
 @track_metrics('acknowledge')
 @jwt_required()
 def acknowledge_alarm():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     timestamp = data.get('timestamp')
     param_id = data.get('param_id')
     user = get_jwt_identity()
@@ -377,7 +454,8 @@ def export_csv():
             download_name=f'opc_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         )
     except Exception as e:
-        return str(e), 500
+        logger.error("Export error: %s", e, exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 # ============================================
@@ -385,7 +463,7 @@ def export_csv():
 # ============================================
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    logger.warning(f"Rate limit exceeded from {get_remote_address()}: {e.description}")
+    logger.warning("Rate limit exceeded from %s: %s", get_remote_address(), e.description)
     return jsonify({
         'error': 'Too many requests',
         'message': 'Please slow down and try again later',
@@ -395,7 +473,7 @@ def ratelimit_handler(e):
 
 @app.errorhandler(500)
 def internal_error(e):
-    logger.error(f"Internal error: {e}")
+    logger.error("Internal error: %s", e, exc_info=True)
     return jsonify({
         'error': 'Internal server error',
         'message': 'Please try again later'
@@ -403,4 +481,4 @@ def internal_error(e):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='127.0.0.1', port=5000, debug=False)

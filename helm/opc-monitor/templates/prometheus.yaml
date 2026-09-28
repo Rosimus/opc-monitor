@@ -1,4 +1,4 @@
-﻿{{- if .Values.prometheus.enabled }}
+{{- if .Values.prometheus.enabled }}
 # ============================================
 # Service
 # ============================================
@@ -30,6 +30,8 @@ metadata:
     {{- include "opc-monitor.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate          # RWO PVC — RollingUpdate приводит к TSDB lock
   selector:
     matchLabels:
       app: prometheus
@@ -38,9 +40,26 @@ spec:
       labels:
         app: prometheus
     spec:
+      serviceAccountName: opc-app
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: prometheus
           image: prom/prometheus:v2.51.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop:
+                - ALL
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
@@ -59,6 +78,18 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
       volumes:
         - name: config
           configMap:

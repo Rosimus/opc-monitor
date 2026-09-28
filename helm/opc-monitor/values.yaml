@@ -4,7 +4,7 @@ global:
 
 image:
   repository: ghcr.io/rosimus/opc-monitor
-  tag: "latest"
+  tag: v12-minimal
   pullPolicy: IfNotPresent
 
 web:
@@ -12,9 +12,11 @@ web:
   replicaCount: 2
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "256Mi"
       cpu: "200m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "512Mi"
       cpu: "500m"
   service:
@@ -32,9 +34,11 @@ client:
   replicaCount: 1
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "256Mi"
       cpu: "200m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "512Mi"
       cpu: "500m"
 
@@ -43,9 +47,11 @@ server:
   replicaCount: 1
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "128Mi"
       cpu: "100m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "256Mi"
       cpu: "200m"
 
@@ -56,9 +62,11 @@ postgres:
   storageClassName: standard
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "256Mi"
       cpu: "250m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "512Mi"
       cpu: "500m"
 
@@ -81,9 +89,11 @@ loki:
   retention: 168h
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "256Mi"
       cpu: "100m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "512Mi"
       cpu: "300m"
 
@@ -91,9 +101,11 @@ promtail:
   enabled: true
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "64Mi"
       cpu: "50m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "128Mi"
       cpu: "100m"
 
@@ -101,9 +113,11 @@ jaeger:
   enabled: true
   resources:
     requests:
+      ephemeral-storage: "100Mi"
       memory: "128Mi"
       cpu: "100m"
     limits:
+      ephemeral-storage: "500Mi"
       memory: "512Mi"
       cpu: "300m"
 
@@ -189,3 +203,5 @@ opcConfig:
       alarm_low: 46.0
       warning_high: 53.0
       alarm_high: 54.0
+
+

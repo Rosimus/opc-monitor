@@ -42,7 +42,7 @@ variable "ssh_public_key" {
 variable "allowed_ssh_cidr" {
   description = "CIDR allowed for SSH access"
   type        = list(string)
-  default     = ["0.0.0.0/0"]
+  default     = ["92.101.224.39/32"]
 }
 
 # ============================================

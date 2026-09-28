@@ -120,3 +120,12 @@ grafana-login.html
 loki-test.json
 *.tmp
 *.bak
+
+# ============================================
+# Security audit (локальные отчёты)
+# ============================================
+security-audit/
+.venv-audit/
+k8s-all.txt
+
+# Bandit

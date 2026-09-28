@@ -43,6 +43,7 @@ class ThresholdsHistory(Base):
 
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, nullable=False, index=True)
+    # SHA-256 hex — 64 символа. Раньше было 32 (MD5).
     config_hash = Column(String(64), nullable=False)
     config_snapshot = Column(Text, nullable=False)
 
@@ -94,12 +95,21 @@ class Database:
         self.param_ids = [p['id'] for p in self.params_config]
 
         # PostgreSQL
-        self.db_url = os.environ.get(
-            'DATABASE_URL',
-            f"postgresql://{os.getenv('POSTGRES_USER', 'opc_user')}:{os.getenv('POSTGRES_PASSWORD', 'secure_password')}@"
-            f"{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/"
-            f"{os.getenv('POSTGRES_DB', 'opc_monitor')}"
-        )
+        # Приоритет: DATABASE_URL → сборка из отдельных env-переменных.
+        # Дефолтных паролей нет — если POSTGRES_PASSWORD не задан, падаем.
+        self.db_url = os.environ.get('DATABASE_URL')
+        if not self.db_url:
+            password = os.environ.get('POSTGRES_PASSWORD')
+            if not password:
+                raise RuntimeError(
+                    "POSTGRES_PASSWORD не задан и DATABASE_URL отсутствует. "
+                    "Установите POSTGRES_PASSWORD (или DATABASE_URL)."
+                )
+            self.db_url = (
+                f"postgresql://{os.getenv('POSTGRES_USER', 'opc_user')}:{password}@"
+                f"{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/"
+                f"{os.getenv('POSTGRES_DB', 'opc_monitor')}"
+            )
         self.engine = create_engine(
             self.db_url,
             pool_size=10,
@@ -185,7 +195,6 @@ class Database:
             session.add(measurement)
             session.commit()
 
-        # Инвалидируем кэш, чтобы клиент увидел свежие данные
         self._cache_delete('opc:latest')
 
     def get_latest(self, thresholds: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -388,7 +397,6 @@ class Database:
             ).delete()
             session.commit()
 
-        # Инвалидируем кэши после удаления
         self._cache_delete('opc:latest')
         self._cache_delete_pattern('opc:stats:*')
         return deleted
@@ -399,7 +407,11 @@ class Database:
             'params': config.get('opc', {}).get('params', []),
             'thresholds': config.get('thresholds', {})
         }
-        hash_str = hashlib.md5(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
+        # SHA-256 вместо MD5: используется только как отпечаток для дедупликации,
+        # но MD5 имеет известные коллизии. SHA-256 — стандарт для content addressing.
+        hash_str = hashlib.sha256(
+            json.dumps(snapshot, sort_keys=True).encode()
+        ).hexdigest()
 
         with self._get_session() as session:
             last = session.query(ThresholdsHistory).order_by(
@@ -483,7 +495,6 @@ class Database:
             session.add(audit)
             session.commit()
 
-        # Инвалидируем кэши после изменения порогов
         self._cache_delete('opc:latest')
         self._cache_delete_pattern('opc:stats:*')
         self._cache_delete_pattern('opc:history:*')

@@ -75,6 +75,8 @@ metadata:
     {{- include "opc-monitor.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate          # RWO PVC — RollingUpdate приводит к lock на /loki
   selector:
     matchLabels:
       app: loki
@@ -83,13 +85,25 @@ spec:
       labels:
         app: loki
     spec:
+      automountServiceAccountToken: false
       securityContext:
-        fsGroup: 10001
+        runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: loki
           image: grafana/loki:2.9.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
           args:
             - '-config.file=/etc/loki/loki-config.yml'
           ports:
@@ -104,6 +118,22 @@ spec:
               mountPath: /loki
           resources:
             {{- toYaml .Values.loki.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
       volumes:
         - name: config
           configMap:

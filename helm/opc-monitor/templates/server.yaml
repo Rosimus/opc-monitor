@@ -1,4 +1,4 @@
-﻿{{- if .Values.server.enabled }}
+{{- if .Values.server.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -31,16 +31,54 @@ spec:
       labels:
         app: server
     spec:
+      serviceAccountName: opc-app
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: server
           image: {{ include "opc-monitor.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "server.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 4840
           env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
             - name: TZ
               value: {{ .Values.global.timezone | quote }}
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            tcpSocket:
+              port: 4840
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 4840
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
 {{- end }}

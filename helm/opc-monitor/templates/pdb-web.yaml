@@ -1,0 +1,14 @@
+{{- if and .Values.web.enabled (gt (int .Values.web.replicaCount) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: web
+{{- end }}

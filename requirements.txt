@@ -1,29 +1,43 @@
-opcua==0.98.13
-flask==2.3.3
-flask-cors==4.0.2
-flask-httpauth==4.8.0
+# === Web framework ===
+flask==3.1.3                                    # было 2.3.3, CVE PYSEC-2026-2151
+flask-cors==6.0.0                               # было 4.0.2, CVE PYSEC-2026-1383/1384/1385
+flask-httpauth==4.8.1                           # было 4.8.0, CVE PYSEC-2026-2152
 flask-jwt-extended==4.5.3
 flask-swagger-ui==4.11.1
 flask-talisman==1.0.0
 flask-limiter==3.5.0
 limits==3.7.0
-PyYAML==6.0.1
-requests==2.31.0
+
+# === OPC UA ===
+opcua==0.98.13                                  # без фикса PYSEC-2026-888, принять риск
+
+# === Database ===
 psycopg2-binary==2.9.9
 SQLAlchemy==2.0.22
 alembic==1.12.1
-prometheus-client==0.19.0
-structlog==24.1.0
-python-dotenv==1.0.0
-gunicorn==23.0.0
-eventlet==0.33.3
 redis==5.0.1
-pytest==8.0.0
+
+# === Utilities ===
+PyYAML==6.0.1
+requests==2.33.0                                # было 2.31.0, CVE PYSEC-2026-1872/1873/2275
+python-dotenv==1.2.2                            # было 1.0.0, CVE PYSEC-2026-2270
+structlog==24.1.0
+
+# === Server ===
+gunicorn==23.0.0
+eventlet==0.40.3                                # было 0.33.3, CVE PYSEC-2026-1307/1350/2472
+
+# === Observability ===
+prometheus-client==0.19.0
+opentelemetry-api==1.37.0                       # было 1.24.0
+opentelemetry-sdk==1.37.0                       # было 1.24.0
+opentelemetry-exporter-otlp-proto-grpc==1.37.0  # было 1.24.0
+opentelemetry-instrumentation-flask==0.58b0     # было 0.45b0
+opentelemetry-instrumentation-sqlalchemy==0.58b0
+opentelemetry-instrumentation-requests==0.58b0
+opentelemetry-instrumentation-threading==0.58b0 # добавлено (было только в системе)
+
+# === Testing ===
+pytest==8.0.0                                   # CVE PYSEC-2026-1845, но 8→9 major
 pytest-cov==4.1.0
 pytest-mock==3.12.0
-opentelemetry-api==1.24.0
-opentelemetry-sdk==1.24.0
-opentelemetry-exporter-otlp-proto-grpc==1.24.0
-opentelemetry-instrumentation-flask==0.45b0
-opentelemetry-instrumentation-sqlalchemy==0.45b0
-opentelemetry-instrumentation-requests==0.45b0

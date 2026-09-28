@@ -25,20 +25,60 @@ spec:
       labels:
         app: server
     spec:
+      serviceAccountName: opc-app
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: server
-          image: opc-monitor:latest
+          image: ghcr.io/rosimus/opc-monitor:v12-minimal
           imagePullPolicy: IfNotPresent
           command: ["python", "server.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 4840
           env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
             - name: TZ
               value: "Europe/Moscow"
           resources:
             requests:
+              ephemeral-storage: "100Mi"
               memory: "128Mi"
               cpu: "100m"
             limits:
+              ephemeral-storage: "500Mi"
               memory: "256Mi"
               cpu: "200m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            tcpSocket:
+              port: 4840
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 4840
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}

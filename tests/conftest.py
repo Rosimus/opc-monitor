@@ -16,6 +16,9 @@ os.environ.setdefault("ADMIN_PASSWORD", "test_password")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-for-pytest-only")
 os.environ.setdefault("POSTGRES_HOST", "localhost")
 os.environ.setdefault("REDIS_HOST", "localhost")
+os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+os.environ.setdefault("OTEL_SERVICE_NAME", "opc-monitor-tests")
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 
 # ============================================================

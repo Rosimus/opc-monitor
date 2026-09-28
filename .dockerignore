@@ -1,29 +1,158 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
 env/
 venv/
 .venv/
-.git
+.venv-audit/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ============================================
+# Terraform — не нужен в образе
+# ============================================
+.terraform/
+**/.terraform/
+terraform/
+**/terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfvars
+*.tfvars.json
+!terraform/*.tfvars.example
+.terraform.lock.hcl
+terraform-provider-*
+crash.log
+crash.*.log
+
+# ============================================
+# Инфраструктура (не нужна в runtime)
+# ============================================
+k8s/
+helm/
+argocd/
+monitoring/
+docs/
+.github/
+security-audit/
+
+# ============================================
+# CI/CD и dev-файлы
+# ============================================
+.git/
 .gitignore
-README.md
-Dockerfile
+.gitattributes
 .dockerignore
+Dockerfile
 docker-compose.yml
+docker-compose.override.yml
+pytest.ini
+.bandit
+.editorconfig
+Makefile
+
+# ============================================
+# Секреты и окружение
+# ============================================
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+secrets/
+helm/opc-monitor/values-secrets.yaml
+!helm/opc-monitor/values-secrets.yaml.example
+
+# ============================================
+# Документация и метаданные
+# ============================================
+*.md
+!README.md
+LICENSE
+CHANGELOG*
+SECURITY.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+
+# ============================================
+# IDE
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================
+# Данные и логи
+# ============================================
+data/
+*.log
+*.csv
+*.xlsx
 *.db
 *.sqlite
 *.sqlite3
-data/
-*.log
-.idea/
-.vscode/
-*.swp
-*.swo
-k8s/
-scripts/
-monitoring/
-*.md
+postgres_data/
+redis_data/
+loki_data/
+prometheus_data/
+grafana_data/
+
+# ============================================
+# Тесты
+# ============================================
+tests/
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ============================================
+# Прочее
+# ============================================
+*.tmp
+*.bak
+*.pid
+grafana-login.html
+loki-test.json
+k8s-all.txt
+
+# ============================================
+# Кэши инструментов
+# ============================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.ruff_cache/
+.ipynb_checkpoints/

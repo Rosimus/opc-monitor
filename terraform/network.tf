@@ -106,12 +106,12 @@ resource "yandex_vpc_security_group" "k3s" {
     v4_cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Grafana (optional)
+  # Grafana — только internal, доступ через Ingress/NodePort или port-forward
   ingress {
     protocol       = "TCP"
-    description    = "Grafana"
+    description    = "Grafana internal"
     port           = 3000
-    v4_cidr_blocks = ["0.0.0.0/0"]
+    v4_cidr_blocks = ["10.10.0.0/16"]
   }
 
   # --- Egress ---

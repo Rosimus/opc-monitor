@@ -43,13 +43,27 @@ spec:
       labels:
         app: promtail
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: promtail
       tolerations:
         - effect: NoSchedule
           operator: Exists
+      securityContext:
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: promtail
           image: grafana/promtail:2.9.0
+          # Promtail в DaemonSet читает /var/log/containers через hostPath.
+          # Эти симлинки принадлежат root, поэтому запускаем от root,
+          # но жёстко ограничиваем привилегии.
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            capabilities:
+              drop:
+                - ALL
           args:
             - '-config.file=/etc/promtail/promtail-config.yml'
           ports:
@@ -66,6 +80,20 @@ spec:
               readOnly: true
           resources:
             {{- toYaml .Values.promtail.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: config
           configMap:

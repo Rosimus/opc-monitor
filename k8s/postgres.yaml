@@ -29,9 +29,26 @@ spec:
       labels:
         app: postgres
     spec:
+      serviceAccountName: opc-app
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:15
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 999
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: POSTGRES_USER
               valueFrom:
@@ -55,11 +72,16 @@ spec:
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
           resources:
             requests:
+              ephemeral-storage: "100Mi"
               memory: "256Mi"
               cpu: "250m"
             limits:
+              ephemeral-storage: "500Mi"
               memory: "512Mi"
               cpu: "500m"
           livenessProbe:
@@ -78,6 +100,10 @@ spec:
                 - $(POSTGRES_USER)
             initialDelaySeconds: 5
             periodSeconds: 5
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: postgres-init
   volumeClaimTemplates:
     - metadata:
         name: postgres-data
