@@ -100,6 +100,9 @@ services:
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_SERVICE_NAME=opc-monitor-web
+      - OTEL_EXPORTER_OTLP_INSECURE=true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
       interval: 30s
@@ -160,6 +163,20 @@ services:
       - '-config.file=/etc/promtail/config.yml'
     depends_on:
       - loki
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - opc-net
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=memory
+      - MEMORY_MAX_TRACES=10000
+      - LOG_LEVEL=warn
 
   grafana:
     image: grafana/grafana:10.4.5

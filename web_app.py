@@ -90,6 +90,10 @@ param_ids: List[str] = [p['id'] for p in params_list]
 # --- База данных ---
 db: Database = Database(params_list)
 
+# --- OpenTelemetry ---
+from tracing import init_tracing
+init_tracing(app, engine=db.engine)
+
 
 def load_thresholds() -> Dict[str, Dict[str, Any]]:
     base: Dict[str, Dict[str, Any]] = {}

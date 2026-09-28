@@ -1,6 +1,6 @@
 ﻿{{- if .Values.grafana.enabled }}
 # ============================================
-# ConfigMap: datasources (Prometheus + Loki)
+# ConfigMap: datasources (Prometheus + Loki + Jaeger)
 # ============================================
 apiVersion: v1
 kind: ConfigMap
@@ -31,6 +31,24 @@ data:
         editable: false
         jsonData:
           maxLines: 1000
+          derivedFields:
+            - datasourceUid: jaeger
+              matcherRegex: "trace_id=(\\w+)"
+              name: TraceID
+              url: "$${__value.raw}"
+      - name: Jaeger
+        uid: jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger:16686
+        isDefault: false
+        editable: false
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: '-1h'
+            spanEndTimeShift: '1h'
+            tags: [{ key: 'service.name', value: 'service' }]
 ---
 # ============================================
 # ConfigMap: dashboard provider

@@ -88,6 +88,12 @@ spec:
                 secretKeyRef:
                   name: opc-secrets
                   key: POSTGRES_DB
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://jaeger:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "opc-monitor-web"
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              value: "true"
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml
