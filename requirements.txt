@@ -24,7 +24,7 @@ python-dotenv==1.2.2                            # было 1.0.0, CVE PYSEC-2026
 structlog==24.1.0
 
 # === Server ===
-gunicorn==23.0.0
+gunicorn==26.2.0
 eventlet==0.40.3                                # было 0.33.3, CVE PYSEC-2026-1307/1350/2472
 
 # === Observability ===
