@@ -26,7 +26,7 @@ spec:
 
   # Игнорируем различия, которыми управляют другие инструменты
   ignoreDifferences:
-    # Image tag — управляется CD-пайплайном
+    # Image tag — управляется CD-пайплайном (sha-<commit>)
     - group: apps
       kind: Deployment
       jsonPointers:
@@ -35,6 +35,14 @@ spec:
       kind: StatefulSet
       jsonPointers:
         - /spec/template/spec/containers/0/image
+
+    # Секреты — управляются CD-пайплайном через --set или вручную.
+    # ArgoCD не должен их синхронизировать (в Git нет values-secrets.yaml).
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+
     # ArgoCD tracking annotations — добавляются автоматически
     - group: ""
       kind: Service
