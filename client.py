@@ -18,18 +18,14 @@ import signal
 from prometheus_client import Counter, Gauge, start_http_server
 import structlog
 
-# Включаем построчную буферизацию stdout (для Docker/K8s)
+from tracing import configure_structlog, init_client_tracing
+
+# Включаем построчную буферизацию stdout
 sys.stdout.reconfigure(line_buffering=True)
 
-
-# --- Настройка структурированного логирования ---
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
-    ]
-)
+# --- OpenTelemetry + structlog ---
+tracer = init_client_tracing()
+configure_structlog()
 logger = structlog.get_logger()
 
 # --- Загрузка конфига ---
@@ -264,36 +260,41 @@ while running:
             for pid in param_ids:
                 measurement[pid] = values.get(pid, 0.0)
 
-            db.insert_measurement(measurement)
-            db.save_last_status(status, now)
+            # Обернуть обработку одного цикла в OTel-спан
+            with tracer.start_as_current_span("opc-read-cycle") as span:
+                span.set_attribute("opc.status", status)
+                span.set_attribute("opc.params_count", len(param_ids))
 
-            # Уведомление через WebSocket
-            try:
-                requests.post('http://web:5000/api/notify', timeout=1)
-            except Exception:
-                pass
+                db.insert_measurement(measurement)
+                db.save_last_status(status, now)
 
-            # Логирование
-            val_str = ", ".join([f"{pid}={values.get(pid, 0):.2f}" for pid in param_ids])
-            logger.info("Measurement", status=status, values=val_str)
+                # Уведомление через WebSocket
+                try:
+                    requests.post('http://web:5000/api/notify', timeout=1)
+                except Exception:
+                    pass
 
-            # Обработка аварии
-            if status == "ALARM":
-                current_time = time.time()
-                if current_time - last_alert_time > alert_cooldown:
-                    subject = "🔴 АВАРИЯ на OPC-мониторе!"
-                    body = "\n".join([
-                        f"{p['name']}: {values.get(p['id'], 0):.2f} {p.get('unit', '')}"
-                        for p in params_list
-                    ])
-                    body += f"\nСтатус: АВАРИЯ"
+                # Логирование (trace_id добавится автоматически)
+                val_str = ", ".join([f"{pid}={values.get(pid, 0):.2f}" for pid in param_ids])
+                logger.info("Measurement", status=status, values=val_str)
 
-                    send_email_alert(subject, body)
-                    send_telegram_alert(body)
-                    alerts_counter.labels(type='email').inc()
-                    alerts_counter.labels(type='telegram').inc()
+                # Обработка аварии
+                if status == "ALARM":
+                    current_time = time.time()
+                    if current_time - last_alert_time > alert_cooldown:
+                        subject = "🔴 АВАРИЯ на OPC-мониторе!"
+                        body = "\n".join([
+                            f"{p['name']}: {values.get(p['id'], 0):.2f} {p.get('unit', '')}"
+                            for p in params_list
+                        ])
+                        body += f"\nСтатус: АВАРИЯ"
 
-                    last_alert_time = current_time
+                        send_email_alert(subject, body)
+                        send_telegram_alert(body)
+                        alerts_counter.labels(type='email').inc()
+                        alerts_counter.labels(type='telegram').inc()
+
+                        last_alert_time = current_time
 
             time.sleep(5)
 

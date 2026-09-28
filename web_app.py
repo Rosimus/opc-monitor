@@ -30,14 +30,14 @@ jwt = JWTManager(app)
 # ============================================
 Talisman(
     app,
-    force_https=False,  # HTTPS терминируется на ingress/ngrok
+    force_https=False,
     strict_transport_security=True,
-    strict_transport_security_max_age=31536000,  # 1 год
+    strict_transport_security_max_age=31536000,
     content_security_policy={
         'default-src': "'self'",
         'script-src': [
             "'self'",
-            "'unsafe-inline'",  # для inline-скриптов в index.html
+            "'unsafe-inline'",
             'https://cdn.jsdelivr.net',
             'https://cdn.socket.io',
             'https://cdnjs.cloudflare.com',
@@ -50,7 +50,7 @@ Talisman(
     },
     frame_options='DENY',
     referrer_policy='strict-origin-when-cross-origin',
-    session_cookie_secure=False,  # для локальной разработки
+    session_cookie_secure=False,
     session_cookie_http_only=True,
 )
 
@@ -78,9 +78,29 @@ except Exception:
 api_requests = Counter('api_requests_total', 'Total API requests', ['endpoint', 'method'])
 api_latency = Histogram('api_latency_seconds', 'API latency', ['endpoint'])
 
-# --- Логирование ---
-logging.basicConfig(level=logging.INFO)
+# --- Логирование с trace_id ---
+from opentelemetry import trace as otel_trace
+
+
+class TraceIdFilter(logging.Filter):
+    """Добавляет trace_id из текущего OTel span в каждую лог-запись."""
+
+    def filter(self, record):
+        span = otel_trace.get_current_span()
+        ctx = span.get_span_context() if span else None
+        if ctx is not None and ctx.is_valid:
+            record.trace_id = format(ctx.trace_id, "032x")
+        else:
+            record.trace_id = "-"
+        return True
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] trace_id=%(trace_id)s %(message)s',
+)
 logger = logging.getLogger(__name__)
+logger.addFilter(TraceIdFilter())
 
 # --- Загрузка конфига ---
 config: Dict[str, Any] = load_config()
@@ -122,7 +142,7 @@ ALL_FIELDS: List[str] = ['timestamp', 'status'] + param_ids
 
 # --- Аутентификация ---
 @app.route('/api/auth/login', methods=['POST'])
-@limiter.limit("5 per minute")  # Защита от брутфорса
+@limiter.limit("5 per minute")
 def login():
     data = request.get_json()
     username = data.get('username')
@@ -168,10 +188,7 @@ def health():
     try:
         latest = db.get_latest(THRESHOLDS)
         if latest and latest.get('timestamp'):
-            # Парсим timestamp из БД (naive, локальное время)
             ts = datetime.fromisoformat(latest['timestamp'].replace('Z', ''))
-
-            # Сравниваем с текущим локальным временем (тоже naive)
             now = datetime.now()
             diff = now - ts
 
@@ -326,9 +343,8 @@ def get_latest_status():
 
 
 @app.route('/api/notify', methods=['POST'])
-@limiter.limit("60 per minute")  # Защита от флуда
+@limiter.limit("60 per minute")
 def notify():
-    # Просто возвращаем OK без WebSocket
     return '', 204
 
 
@@ -369,7 +385,6 @@ def export_csv():
 # ============================================
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    """Обработчик превышения лимитов"""
     logger.warning(f"Rate limit exceeded from {get_remote_address()}: {e.description}")
     return jsonify({
         'error': 'Too many requests',
@@ -380,7 +395,6 @@ def ratelimit_handler(e):
 
 @app.errorhandler(500)
 def internal_error(e):
-    """Обработчик внутренних ошибок"""
     logger.error(f"Internal error: {e}")
     return jsonify({
         'error': 'Internal server error',

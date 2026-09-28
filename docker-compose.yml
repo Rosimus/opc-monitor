@@ -66,8 +66,12 @@ services:
       - TZ=Europe/Moscow
       - POSTGRES_HOST=postgres
       - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - REDIS_CACHE_TTL=${REDIS_CACHE_TTL:-30}
       - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_SERVICE_NAME=opc-monitor-client
+      - OTEL_EXPORTER_OTLP_INSECURE=true
     healthcheck:
       test: ["CMD", "python", "-c", "import os, sys; sys.exit(0 if os.path.exists('/tmp/client_ready') else 1)"]
       interval: 30s
@@ -96,6 +100,7 @@ services:
       - TZ=Europe/Moscow
       - POSTGRES_HOST=postgres
       - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - REDIS_CACHE_TTL=${REDIS_CACHE_TTL:-30}
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
