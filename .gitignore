@@ -117,5 +117,6 @@ helm/opc-monitor/values-secrets.yaml
 # Temporary curl output / scratch files
 # ============================================
 grafana-login.html
+loki-test.json
 *.tmp
 *.bak
