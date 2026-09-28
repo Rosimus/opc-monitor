@@ -8,6 +8,7 @@
 [![Helm](https://img.shields.io/badge/helm-3.12+-0F1689)](https://helm.sh/)
 [![ArgoCD](https://img.shields.io/badge/argocd-GitOps-orange)](https://argo-cd.readthedocs.io/)
 [![Tests](https://img.shields.io/badge/tests-41%20passed-brightgreen)](#-тестирование)
+[![Security](https://img.shields.io/badge/security-audited-brightgreen)](SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Система мониторинга промышленного оборудования на OPC UA с веб-интерфейсом, алертами, аналитикой и полным observability-стеком.
@@ -40,7 +41,7 @@
 - 🔀 **ArgoCD** — GitOps-подход (pull-модель деплоя)
 - ✅ **41 тест** (29 unit + 12 integration) в CI pipeline
 - 📦 **GHCR** — автоматическая загрузка образов
-- 🛡️ **Security Hardened** — non-root, security headers, rate limiting, Trivy scan
+- 🛡️ **Security Hardened** — полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint
 
 ## 🏗️ Архитектура
 
@@ -95,10 +96,10 @@
 | **Frontend** | Vanilla JS, Chart.js, Socket.IO client |
 | **База данных** | PostgreSQL 15, Redis 7 (кэш) |
 | **Аутентификация** | JWT (flask-jwt-extended) |
-| **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy |
+| **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy, Bandit, Semgrep, Checkov |
 | **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3 |
 | **GitOps** | ArgoCD |
-| **CI/CD** | GitHub Actions, GHCR, self-hosted runner |
+| **CI/CD** | GitHub Actions, GHCR, self-hosted runner, Dependabot |
 | **Metrics** | Prometheus, Alertmanager, Grafana |
 | **Logs** | Loki, Promtail |
 | **Traces** | OpenTelemetry SDK, Jaeger |
@@ -219,6 +220,17 @@ kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 
 **Время от `git push` до работающего приложения: ~60 секунд** ⚡
 
+### 🤖 Dependabot
+
+Автоматическое обновление зависимостей и SHA-пины GitHub Actions (`.github/dependabot.yml`):
+
+- **github-actions** — еженедельно, пин на commit SHA (защита от supply-chain атак)
+- **pip** — Python-пакеты из `requirements.txt`
+- **docker** — базовый образ `python:3.11-slim`
+- **terraform** — Yandex Cloud provider
+
+Cooldown 7 дней — новые версии не подхватываются сразу, ждём проверки сообществом.
+
 ### GitOps с ArgoCD
 
 Проект поддерживает **GitOps-подход** через ArgoCD. ArgoCD отслеживает helm-чарт в Git и синхронизирует его с кластером (pull-модель).
@@ -328,66 +340,104 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 
 ## 🔐 Безопасность
 
+Полный отчёт аудита и список принятых рисков — в **[SECURITY.md](SECURITY.md)**.
+
 ### Уровень приложения
-- ✅ **JWT-аутентификация** — flask-jwt-extended
-- ✅ **Rate limiting** — защита от брутфорса (5 попыток/мин на login)
-- ✅ **Security Headers** — Flask-Talisman (CSP, HSTS, X-Frame-Options, X-Content-Type-Options)
-- ✅ **Non-root user** в Docker
+
+- ✅ **JWT-аутентификация** — flask-jwt-extended, HS256, access-token 60 мин
+- ✅ **Timing-safe сравнение паролей** — `secrets.compare_digest`
+- ✅ **Rate limiting** — Redis-based, `/health` и `/metrics` исключены из лимитов
+- ✅ **Security Headers** — Flask-Talisman (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, COOP, COEP, Permissions-Policy)
+- ✅ **Локальные библиотеки** — Chart.js, Socket.IO, XLSX, jwt-decode вынесены из CDN в `static/js/`
 - ✅ **Параметризованные SQL-запросы** — SQLAlchemy ORM
 
-### Уровень CI/CD
-- ✅ **Trivy** — сканирование на уязвимости (CRITICAL/HIGH)
-- ✅ **GitHub Secrets** для чувствительных данных
-- ✅ **pytest + coverage** — тесты как часть pipeline
+### Уровень контейнера и Kubernetes
 
-### Уровень инфраструктуры
-- ✅ **securityContext fsGroup: 472** для Grafana
-- ✅ **Kubernetes Secrets** для хранения паролей
-- ✅ **Security Groups** в Yandex Cloud
+- ✅ **Non-root user** — `USER 1000:1000`, числовой UID
+- ✅ **securityContext** — `runAsNonRoot`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`
+- ✅ **readOnlyRootFilesystem** для web, client, server + emptyDir для `/tmp`
+- ✅ **NetworkPolicy** — default-deny ingress, разрешён только internal + web:5000
+- ✅ **PodDisruptionBudget** — minAvailable: 1 для web
+- ✅ **ServiceAccount** `opc-app` с `automountServiceAccountToken: false`
+- ✅ **initContainer** `wait-for-postgres` — устраняет race condition при рестарте
+- ✅ **Resource limits** — CPU, memory, ephemeral-storage для всех контейнеров
+
+### Уровень БД
+
+- ✅ **opc_user — NOT superuser** (NOSUPERUSER NOCREATEROLE NOCREATEDB)
+- ✅ **Минимальные привилегии** — CRUD без TRUNCATE/REFERENCES/TRIGGER
+- ✅ **init-скрипт** понижает права при первичной инициализации
+
+### Уровень CI/CD
+
+- ✅ **Bandit** — SAST, 0 находок
+- ✅ **pip-audit** — SCA, 0 CVE
+- ✅ **Semgrep** — SAST (p/python, p/flask, p/owasp-top-ten)
+- ✅ **Trivy** — образ: 0 CVE; Terraform config scan
+- ✅ **Hadolint** — Dockerfile: 0 WARN
+- ✅ **Checkov** — Kubernetes, Helm, Terraform
+- ✅ **kube-score** / **kubesec** — анализ манифестов
+- ✅ **Dependabot** — обновление зависимостей и SHA-пины actions
 
 ### Соответствие стандартам
+
 - ✅ **OWASP Top 10** — A01, A02, A03, A05, A07
 - ✅ **CIS Docker Benchmark** — non-root user, healthcheck
+- ✅ **CIS Kubernetes Benchmark** — securityContext, resource limits, NetworkPolicy
 
-### Известные ограничения (для пет-проекта)
+### Известные ограничения
 
-- Симулятор PLC не использует TLS/шифрование OPC UA — это допустимо для демонстрации.
-- Alertmanager использует receiver `default` (логирует в stdout). Telegram-интеграция подготовлена, но требует реальных `bot_token` и `chat_id`.
+- Симулятор PLC не использует TLS/шифрование OPC UA — допустимо для демонстрации.
+- Alertmanager использует receiver `default` (логирует в stdout); Telegram-интеграция требует bot_token.
+- CSP содержит `script-src 'self' 'unsafe-inline'` — UI использует inline-обработчики; вынос в `static/js/app.js` запланирован.
 
 ## 🔑 Управление секретами
 
-### Текущий подход
+### Для Helm-деплоя (прод)
 
-Секреты хранятся в двух местах:
-
-1. **`helm/opc-monitor/values.yaml`** — дефолтные значения-плейсхолдеры для локальной разработки.
-2. **GitHub Secrets** — реальные значения, которые подставляются в CD-пайплайне через `--set`.
-
-Пример из `cd.yml`:
-
-```powershell
-$postgresPassword = "${{ secrets.POSTGRES_PASSWORD }}"
-if (-not $postgresPassword) { $postgresPassword = "change_me_secure_password" }
-
-helm upgrade --install ... `
-  --set secrets.postgresPassword=$postgresPassword
-```
-
-### Локальная разработка
-
-Для локального запуска через Docker Compose используются значения из `.env` (см. `.env.example`).
-
-### Файл `values-secrets.yaml`
-
-Для продакшена используется отдельный файл `values-secrets.yaml`, который **не коммитится в Git**.
+Секреты хранятся в **`helm/opc-monitor/values-secrets.yaml`** — файл в `.gitignore`, не попадает в репозиторий.
 
 ```bash
 cp helm/opc-monitor/values-secrets.yaml.example helm/opc-monitor/values-secrets.yaml
+# Заполнить реальными значениями:
+#   jwtSecretKey     — python -c "import secrets; print(secrets.token_hex(32))"
+#   postgresPassword — пароль БД
+#   adminPassword    — пароль admin в web UI
+#   grafanaPassword  — пароль Grafana
+```
 
+Деплой:
+
+```bash
 helm upgrade --install opc-monitor ./helm/opc-monitor \
+  --namespace opc-monitor \
   --values ./helm/opc-monitor/values-prod.yaml \
   --values ./helm/opc-monitor/values-secrets.yaml
 ```
+
+### Для CI/CD (GitHub Actions)
+
+Секреты хранятся в **GitHub Secrets** и пробрасываются в `cd.yml`:
+
+| Secret | Назначение |
+|--------|-----------|
+| `JWT_SECRET_KEY` | Подпись JWT-токенов (64 hex) |
+| `POSTGRES_PASSWORD` | Пароль PostgreSQL |
+| `ADMIN_PASSWORD` | Пароль admin в web UI |
+| `GRAFANA_PASSWORD` | Пароль Grafana |
+
+Настроить: **Settings → Secrets and variables → Actions → New repository secret**.
+
+### Для локальной разработки
+
+Через `.env` (см. `.env.example`) для Docker Compose.
+
+### Что НЕ должно попадать в репо
+
+- `helm/opc-monitor/values-secrets.yaml` — в `.gitignore`
+- `.env`, `.env.*` — в `.gitignore`
+- `terraform/terraform.tfvars` — в `.gitignore`
+- `security-audit/` — в `.gitignore` (локальные отчёты сканеров)
 
 ### Продакшен-подходы
 
@@ -428,6 +478,7 @@ opc-monitor/
 ├── .github/workflows/           # CI/CD
 │   ├── ci.yml                   # tests + build + Trivy + push
 │   └── cd.yml                   # deploy через Helm
+├── .github/dependabot.yml       # auto-update deps + SHA-pins
 ├── argocd/
 │   └── application.yaml         # ArgoCD Application (GitOps)
 ├── helm/opc-monitor/            # Helm-чарт
@@ -458,6 +509,12 @@ opc-monitor/
 ├── docs/
 │   ├── RUNBOOK.md
 │   └── screenshots/
+├── static/js/                   # локальные библиотеки (были в CDN)
+│   ├── app.js
+│   ├── chart.umd.min.js
+│   ├── jwt-decode.min.js
+│   ├── socket.io.min.js
+│   └── xlsx.full.min.js
 ├── templates/index.html
 ├── client.py                    # OPC UA клиент
 ├── server.py                    # OPC UA симулятор (PLCSimulator)
@@ -470,6 +527,8 @@ opc-monitor/
 ├── docker-compose.yml
 ├── requirements.txt
 ├── pytest.ini
+├── .bandit                      # конфиг Bandit
+├── SECURITY.md                  # отчёт аудита и принятые риски
 └── README.md
 ```
 
@@ -481,7 +540,7 @@ opc-monitor/
 |--------|----------|
 | **VPC Network** | Сеть с публичной и приватными подсетями |
 | **NAT Gateway** | Интернет-доступ для приватных подсетей |
-| **Security Group** | Правила firewall для Kubernetes |
+| **Security Group** | Правила firewall: SSH по IP владельца, k3s API/VXLAN/kubelet — internal |
 | **k3s Master** | VM с k3s control-plane |
 | **k3s Workers ×2** | VM с k3s агентами в разных зонах |
 | **Managed PostgreSQL** | Кластер БД (s2.micro, 20 GB SSD) |
