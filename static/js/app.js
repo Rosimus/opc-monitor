@@ -752,21 +752,24 @@
                         }
                         document.getElementById('update-time').textContent = 'Обновлено: ' + new Date().toLocaleTimeString();
 
-                        const exists = currentData.some(item => item.timestamp === data.timestamp);
-                        if (!exists) {
-                            currentData.push(data);
-                            currentData.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                            if (currentData.length > MAX_CHART_POINTS) {
-                                currentData = currentData.slice(currentData.length - MAX_CHART_POINTS);
+                        // Дедупликация через lastAddedTimestamp — надёжнее, чем строковое сравнение
+                        if (data.timestamp !== lastAddedTimestamp) {
+                            const exists = currentData.some(item => item.timestamp === data.timestamp);
+                            if (!exists) {
+                                currentData.push(data);
+                                currentData.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                                if (currentData.length > MAX_CHART_POINTS) {
+                                    currentData = currentData.slice(currentData.length - MAX_CHART_POINTS);
+                                }
                             }
-                        }
+                            lastAddedTimestamp = data.timestamp;
 
-                        if (Object.keys(charts).length > 0 && !exists) {
-                            // Просто перерисовываем графики, т.к. currentData уже обновлён
-                            renderCharts(currentData);
-                            updateTable(currentData);
-                        } else if (Object.keys(charts).length === 0) {
-                            applyFilters();
+                            if (Object.keys(charts).length > 0) {
+                                renderCharts(currentData);
+                                updateTable(currentData);
+                            } else {
+                                applyFilters();
+                            }
                         }
                     }
                 })
@@ -1087,7 +1090,7 @@
                     alarm_high: isNaN(alarm_high) ? null : alarm_high
                 });
             });
-            Promise.all(updates.map(u => 
+            Promise.all(updates.map(u =>
                 apiRequest('/api/thresholds/update', {
                     method: 'POST',
                     body: JSON.stringify(u)
@@ -1205,7 +1208,7 @@
         // ================================================================
         // 23. WEBSOCKET — отключён (на бэкенде нет Flask-SocketIO)
         // ================================================================
-        // Используем polling через setInterval в initApp() — обновление каждые 30 сек.
+        // Используем polling через setInterval в initApp() — обновление каждые 5 сек.
         // Если Socket.IO будет добавлен на бэкенд, вернуть блок io() сюда.
 
         // ================================================================
@@ -1217,7 +1220,7 @@
             loadFilters();
             applyFilters();
             updateLatest();
-            setInterval(updateLatest, 30000); // автообновление каждые 30 секунд
+            setInterval(updateLatest, 5000); // автообновление каждые 5 секунд (синхронно с client)
         }
 
         // Проверка аутентификации при загрузке
