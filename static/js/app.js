@@ -1203,29 +1203,10 @@
         };
 
         // ================================================================
-        // 23. WEBSOCKET (ошибки игнорируем)
+        // 23. WEBSOCKET — отключён (на бэкенде нет Flask-SocketIO)
         // ================================================================
-        try {
-            const socket = io();
-            socket.on('data_updated', function(data) {
-                console.log('📡 WebSocket: новые данные', data);
-                updateLatest();
-            });
-
-            socket.on('thresholds_updated', function(data) {
-                console.log('📡 Пороги обновлены:', data);
-                apiRequest('/api/thresholds')
-                    .then(res => res.json())
-                    .then(newThresholds => {
-                        THRESHOLDS = newThresholds;
-                        if (currentData.length > 0) {
-                            renderCharts(currentData);
-                        }
-                    });
-            });
-        } catch (e) {
-            console.warn('⚠️ WebSocket отключен (используем polling)');
-        }
+        // Используем polling через setInterval в initApp() — обновление каждые 30 сек.
+        // Если Socket.IO будет добавлен на бэкенд, вернуть блок io() сюда.
 
         // ================================================================
         // 24. ИНИЦИАЛИЗАЦИЯ
@@ -1251,3 +1232,36 @@
                 document.getElementById('login-btn').click();
             }
         });
+
+        // ================================================================
+        // 25. EVENT DELEGATION (CSP: заменяет inline onclick-обработчики)
+        // ================================================================
+        const ACTION_HANDLERS = {
+            'refresh': applyFilters,
+            'open-thresholds': openThresholdsEditor,
+            'toggle-theme': toggleTheme,
+            'logout': logout,
+            'apply-filters': () => { applyFilters(); saveFilters(); },
+            'open-export': openExportModal,
+            'load-alarms': loadAlarms,
+            'export-alarms': exportAlarmsCSV,
+            'load-stats': loadStats,
+            'load-thresholds-history': loadThresholdsHistory,
+            'close-export': closeExportModal,
+            'export-csv': exportWithOptions,
+            'export-excel': exportAsExcel,
+            'save-thresholds': saveThresholds,
+            'close-thresholds': closeThresholdsEditor,
+        };
+
+        document.addEventListener('click', function(e) {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const handler = ACTION_HANDLERS[btn.dataset.action];
+            if (handler) {
+                e.preventDefault();
+                handler();
+            }
+        });
+
+        document.getElementById('login-form').addEventListener('submit', login);

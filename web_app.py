@@ -100,10 +100,13 @@ Talisman(
     strict_transport_security_max_age=31536000,
     content_security_policy={
         'default-src': "'self'",
-        # 'unsafe-inline' оставлен до выноса inline-скрипта (строка 908 index.html) в static/js/app.js
-        # CDN-библиотеки (chart.js, socket.io, xlsx, jwt-decode) вынесены в static/js/
-        # — внешние источники в CSP больше не нужны, wildcards убраны.
-        'script-src': ["'self'", "'unsafe-inline'"],
+        # Все скрипты вынесены в static/js/ (chart.js, socket.io, xlsx, jwt-decode, app.js).
+        # Inline-обработчики (onclick) заменены на data-action + event delegation в app.js.
+        # 'unsafe-inline' убран из script-src.
+        'script-src': ["'self'"],
+        # style-src оставляет 'unsafe-inline': Chart.js и JS применяют inline-стили
+        # (element.style.display = 'block'), без этого UI сломается.
+        # Риск XSS через style-src существенно ниже, чем через script-src.
         'style-src': ["'self'", "'unsafe-inline'"],
         'img-src': ["'self'", 'data:'],
         'connect-src': ["'self'"],
