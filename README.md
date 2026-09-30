@@ -3,6 +3,7 @@
 [![CI](https://github.com/Rosimus/opc-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/ci.yml)
 [![CD](https://github.com/Rosimus/opc-monitor/actions/workflows/cd.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/cd.yml)
 [![CodeQL](https://github.com/Rosimus/opc-monitor/actions/workflows/codeql.yml/badge.svg)](https://github.com/Rosimus/opc-monitor/actions/workflows/codeql.yml)
+[![codecov](https://codecov.io/gh/Rosimus/opc-monitor/branch/main/graph/badge.svg)](https://codecov.io/gh/Rosimus/opc-monitor)
 [![Container Registry](https://img.shields.io/badge/registry-ghcr.io-blue)](https://github.com/Rosimus/opc-monitor/pkgs/container/opc-monitor)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
@@ -12,7 +13,29 @@
 [![Security](https://img.shields.io/badge/security-audited-brightgreen)](SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Система мониторинга промышленного оборудования на OPC UA с веб-интерфейсом, алертами, аналитикой и полным observability-стеком.
+> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 41 тест, 68% unit-coverage. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
+
+## 📋 Содержание
+
+- [Возможности](#-возможности)
+- [Архитектура](#️-архитектура)
+- [Стек технологий](#️-стек-технологий)
+- [Скриншоты](#-скриншоты)
+- [Быстрый старт](#-быстрый-старт)
+- [Локальная разработка в Minikube](#-локальная-разработка-в-minikube)
+- [CI/CD Pipeline](#-cicd-pipeline)
+- [Observability](#-observability)
+- [Эксплуатация](#-эксплуатация)
+- [Безопасность](#-безопасность)
+- [Управление секретами](#-управление-секретами)
+- [Тестирование](#-тестирование)
+- [Структура проекта](#-структура-проекта)
+- [Infrastructure as Code](#️-infrastructure-as-code-terraform)
+- [API Endpoints](#-api-endpoints)
+- [Architecture Decision Records](#-architecture-decision-records)
+- [Roadmap](#️-roadmap)
+- [Чему я научился](#-чему-я-научился)
+- [Лицензия](#-лицензия)
 
 ## ✨ Возможности
 
@@ -30,19 +53,19 @@
 - 🔔 **Алерты:** Alertmanager с 4 правилами
 - 📋 **Логи:** Loki + Promtail (сбор со всех подов)
 - 🔍 **Трейсы:** OpenTelemetry + Jaeger (distributed tracing)
-- 🔗 **Корреляция:** trace_id в логах + переход Loki ↔ Jaeger одним кликом
+- 🔗 **Корреляция:** `trace_id` в логах и заголовке `X-Trace-Id` каждого HTTP-ответа + переход Loki ↔ Jaeger одним кликом
 
 ### DevOps
-- 🐳 **Docker-образ** с автоматической сборкой
+- 🐳 **Docker-образ** с multi-stage сборкой и non-root пользователем
 - ☸️ **Kubernetes** через kubectl / Helm
 - ⛵ **Helm-чарт** с параметризацией под staging/prod
 - 🔑 **Управление секретами** через GitHub Secrets + `values-secrets.yaml`
 - 🌩️ **Terraform** — IaC для Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
 - 🔀 **ArgoCD** — GitOps-подход (pull-модель деплоя)
-- ✅ **41 тест** (29 unit + 12 integration) в CI pipeline
+- ✅ **41 тест** (29 unit + 12 integration) + Codecov, порог покрытия 63%
 - 📦 **GHCR** — автоматическая загрузка образов
-- 🛡️ **Security Hardened** — полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint/CodeQL
+- 🛡️ **Security Hardened** — CSP без `unsafe-inline` в `script-src`, полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint/CodeQL
 
 ## 🏗️ Архитектура
 
@@ -76,7 +99,7 @@
 │  • Web UI (Chart.js, dark/light тема)                    │
 │  • Security headers (Talisman) + Rate limiting           │
 │  • Метрики Prometheus на :5000/metrics                   │
-│  • OTel трейсы в Jaeger                                  │
+│  • OTel трейсы + X-Trace-Id в HTTP-ответах               │
 └───────────────────────────┬──────────────────────────────┘
                             │
                             ▼
@@ -94,18 +117,19 @@
 | Категория | Технологии |
 |-----------|------------|
 | **Backend** | Python 3.11, Flask, SQLAlchemy, Gunicorn, structlog |
-| **Frontend** | Vanilla JS, Chart.js, Socket.IO client |
+| **Frontend** | Vanilla JS (ES2020), Chart.js, XLSX, jwt-decode — локально в `static/js/`, без CDN |
 | **База данных** | PostgreSQL 15, Redis 7 (кэш) |
 | **Аутентификация** | JWT (flask-jwt-extended) |
-| **Безопасность** | Flask-Talisman, Flask-Limiter, Trivy, Bandit, Semgrep, Checkov, CodeQL |
+| **Безопасность** | Flask-Talisman (строгий CSP), Flask-Limiter, Trivy, Bandit, Semgrep, Checkov, CodeQL |
 | **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3 |
 | **GitOps** | ArgoCD |
-| **CI/CD** | GitHub Actions, GHCR, self-hosted runner, Dependabot |
+| **CI/CD** | GitHub Actions, GHCR, self-hosted runner, Dependabot, Codecov |
 | **Metrics** | Prometheus, Alertmanager, Grafana |
 | **Logs** | Loki, Promtail |
 | **Traces** | OpenTelemetry SDK, Jaeger |
 | **IaC** | Terraform (Yandex Cloud) |
 | **Тесты** | pytest, pytest-cov, pytest-mock |
+| **DevEx** | Makefile для типовых операций |
 
 ## 📸 Скриншоты
 
@@ -149,39 +173,32 @@
 
 ### Предварительные требования
 
-- **Windows 10/11** с WSL2 (или Linux/macOS)
 - **Docker Desktop** 4.20+
-- **Minikube** 1.30+
+- **Minikube** 1.30+ (для k8s-развёртывания)
 - **kubectl** 1.27+
 - **Helm** 3.12+
+- **make** (опционально, для `make test` и т.п.)
 
-### Запуск через Docker Compose
+### Три способа запуска
+
+**1. Docker Compose** — самый быстрый, только сервисы без observability:
 
 ```bash
 git clone https://github.com/Rosimus/opc-monitor.git
 cd opc-monitor
-copy .env.example .env
+cp .env.example .env
 docker-compose up -d
+# → http://localhost:5000
 ```
 
-**Доступ**: http://localhost:5000
-
-### Запуск в Kubernetes через Helm
+**2. Helm + Minikube** — полный стек, включая Grafana/Jaeger/Loki:
 
 ```bash
 minikube start --driver=docker --memory=6144 --cpus=4
-docker build -t opc-monitor:latest .
+make build             # docker build -t opc-monitor:latest .
 minikube image load opc-monitor:latest
+make deploy-local      # helm upgrade --install с values-prod.yaml
 
-helm install opc-monitor ./helm/opc-monitor \
-  --namespace opc-monitor \
-  --create-namespace \
-  --values ./helm/opc-monitor/values-prod.yaml
-```
-
-**Проброс портов:**
-
-```bash
 kubectl port-forward -n opc-monitor service/web 5000:5000
 kubectl port-forward -n opc-monitor service/grafana 3000:3000
 kubectl port-forward -n opc-monitor service/jaeger 16686:16686
@@ -189,12 +206,79 @@ kubectl port-forward -n opc-monitor service/prometheus 9090:9090
 kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 ```
 
+**3. ArgoCD GitOps** — pull-модель деплоя (см. [раздел GitOps](#gitops-с-argocd)).
+
 **Доступ:**
 - Web UI: http://localhost:5000
-- Grafana: http://localhost:3000 (admin / admin)
+- Grafana: http://localhost:3000 (`admin / admin`)
 - Jaeger: http://localhost:16686
 - Prometheus: http://localhost:9090
 - Alertmanager: http://localhost:9093
+
+### Makefile
+
+Все типовые операции — через `make`:
+
+```bash
+make help            # список команд
+make test            # pytest с coverage
+make lint            # bandit + hadolint
+make build           # сборка Docker-образа
+make deploy-local    # helm upgrade --install в текущий kube-context
+make rollback        # helm rollback
+make status          # kubectl get pods -n opc-monitor
+make logs            # логи web-пода
+make destroy         # helm uninstall
+```
+
+## 🧪 Локальная разработка в Minikube
+
+### ⚠️ Важно: `minikube image load` не перезаписывает образ с тем же тегом
+
+Если собрать образ с тегом `opc-monitor:latest`, загрузить его в Minikube, потом пересобрать с тем же тегом и снова загрузить — **Minikube возьмёт старый образ из кэша**. Это приводит к тому, что под запускается со старым кодом, хотя образ пересобран.
+
+**Решение:** для локальных итераций используем **уникальный тег**:
+
+```bash
+TAG="local-$(date +%Y%m%d%H%M%S)"
+docker build -t opc-monitor:$TAG .
+minikube image load opc-monitor:$TAG
+
+helm upgrade --install opc-monitor ./helm/opc-monitor \
+  -n opc-monitor \
+  -f ./helm/opc-monitor/values-prod.yaml \
+  --set image.repository=opc-monitor \
+  --set image.tag=$TAG \
+  --set image.pullPolicy=Never \
+  --force-conflicts
+
+kubectl rollout status deployment/web -n opc-monitor
+```
+
+Флаг `--force-conflicts` нужен, если раньше делали ручной `kubectl set image` — Helm 3.10+ использует server-side apply и отказывается менять поля, ownership которых висит на `kubectl-set`.
+
+### Проверка, что в контейнере новый код
+
+```bash
+kubectl exec -n opc-monitor deployment/web -- grep -n "WEBSOCKET" /app/static/js/app.js
+```
+
+### Проверка CSP-заголовка
+
+```bash
+curl -sI http://localhost:5000/ | grep -i content-security-policy
+# Ожидаемо: script-src 'self' (без 'unsafe-inline')
+```
+
+### Доступ к observability
+
+В отдельном окне:
+
+```bash
+kubectl port-forward -n opc-monitor service/web 5000:5000       # Web UI
+kubectl port-forward -n opc-monitor service/grafana 3000:3000   # Grafana
+kubectl port-forward -n opc-monitor service/jaeger 16686:16686  # Jaeger UI
+```
 
 ## 🔄 CI/CD Pipeline
 
@@ -203,11 +287,12 @@ kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 ### CI — Test, Build & Push
 
 При каждом push в `main`:
-1. ✅ **Run Tests** — 41 тест (29 unit + 12 integration) + coverage report
-2. ✅ Сборка Docker-образа
-3. ✅ Загрузка в GitHub Container Registry (GHCR)
-4. ✅ **Trivy scan** — проверка на уязвимости (CRITICAL/HIGH)
-5. ✅ Теги: `latest`, `sha-<commit>`, `<branch>`
+1. ✅ **Run Tests** — 41 тест (29 unit + 12 integration) + coverage 68%, порог 63%
+2. ✅ Загрузка `coverage.xml` в **Codecov**
+3. ✅ Сборка Docker-образа
+4. ✅ Загрузка в GitHub Container Registry (GHCR)
+5. ✅ **Trivy scan** — проверка на уязвимости (CRITICAL/HIGH)
+6. ✅ Теги: `latest`, `sha-<commit>`, `<branch>`
 
 ### CD — Deploy to Minikube
 
@@ -215,7 +300,7 @@ kubectl port-forward -n opc-monitor service/alertmanager 9093:9093
 1. ✅ Self-hosted runner получает задачу
 2. ✅ Скачивает образ из GHCR
 3. ✅ Загружает в Minikube
-4. ✅ Выполняет `helm upgrade --install` (атомарно)
+4. ✅ Выполняет `helm upgrade --install` (атомарно, с `--force-conflicts`)
 5. ✅ Подставляет секреты из GitHub Secrets (если заданы)
 6. ✅ Проверяет готовность через `kubectl rollout status`
 
@@ -245,7 +330,7 @@ GitHub Advanced Security анализирует Python-код при каждо�
 
 ### GitOps с ArgoCD
 
-Проект поддерживает **GitOps-подход** через ArgoCD. ArgoCD отслеживает helm-чарт в Git и синхронизирует его с кластером (pull-модель).
+ArgoCD отслеживает helm-чарт в Git и синхронизирует его с кластером (pull-модель). CI пушит образ в GHCR, CD обновляет релиз, ArgoCD следит за drift.
 
 **Установка ArgoCD в Minikube:**
 
@@ -292,6 +377,14 @@ helm rollback opc-monitor -n opc-monitor
 - **OTel SDK** инструментирует Flask, SQLAlchemy, requests
 - **Jaeger** принимает трейсы через OTLP (gRPC)
 - Каждый запрос оставляет трейс со спанами (HTTP → SQL → Redis)
+- **Каждый HTTP-ответ содержит заголовок `X-Trace-Id`** — 32-символьный hex-идентификатор текущего span. Это позволяет клиенту (или внешней системе) мгновенно найти нужный трейс в Jaeger по ID из ответа, без ручного поиска.
+
+Проверка:
+
+```bash
+curl -sI http://localhost:5000/health | grep -i x-trace-id
+# X-Trace-Id: 4bf92f3577b34da6a3ce929d0e0e4736
+```
 
 ### Корреляция logs ↔ traces
 
@@ -334,18 +427,10 @@ helm rollback opc-monitor -n opc-monitor
 ### Типовые операции
 
 ```bash
-# Проверить статус
-kubectl get pods -n opc-monitor
-kubectl get pvc -n opc-monitor
-
-# Перезапустить сервис (замени <service> на web, client, server, grafana, prometheus, alertmanager, loki, jaeger)
+make status                                        # kubectl get pods -n opc-monitor
+make logs                                          # логи web-пода
+make rollback                                      # helm rollback
 kubectl rollout restart deployment/web -n opc-monitor
-
-# Откатить релиз
-helm rollback opc-monitor -n opc-monitor
-
-# Посмотреть логи
-kubectl logs -n opc-monitor deployment/web --tail=100
 ```
 
 Полный список — в **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.
@@ -360,7 +445,8 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 - ✅ **Timing-safe сравнение паролей** — `secrets.compare_digest`
 - ✅ **Rate limiting** — Redis-based, `/health` и `/metrics` исключены из лимитов
 - ✅ **Security Headers** — Flask-Talisman (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, COOP, COEP, Permissions-Policy)
-- ✅ **Локальные библиотеки** — Chart.js, Socket.IO, XLSX, jwt-decode вынесены из CDN в `static/js/`
+- ✅ **Строгий CSP** — `script-src 'self'` без `'unsafe-inline'`. Все inline-обработчики (`onclick=`) заменены на `data-action` + event delegation в `static/js/app.js`. `style-src` оставляет `'unsafe-inline'` — Chart.js и JS применяют inline-стили динамически; риск XSS через style-src существенно ниже.
+- ✅ **Локальные библиотеки** — Chart.js, XLSX, jwt-decode вынесены из CDN в `static/js/`
 - ✅ **Параметризованные SQL-запросы** — SQLAlchemy ORM
 
 ### Уровень контейнера и Kubernetes
@@ -414,13 +500,14 @@ kubectl logs -n opc-monitor deployment/web --tail=100
 | **OWASP ZAP** | Web API | ✅ 0 FAIL, 4 WARN (не-уязвимости) |
 | **jwt_tool** | JWT alg:none | ✅ Устойчив |
 
-Отчёты и обоснование принятых рисков — в [SECURITY.md](SECURITY.md).
+### Про «приняты» — что это значит
 
-### Известные ограничения
+Некоторые сканеры (kube-score, Checkov) выдали срабатывания, которые **осознанно приняты** для этого проекта. Это не «мы не стали чинить», а «мы посмотрели и решили, что для нашего контекста риск приемлемый». Примеры:
 
-- Симулятор PLC не использует TLS/шифрование OPC UA — допустимо для демонстрации.
-- Alertmanager использует receiver `default` (логирует в stdout); Telegram-интеграция требует bot_token.
-- CSP содержит `script-src 'self' 'unsafe-inline'` — UI использует inline-обработчики; вынос в `static/js/app.js` запланирован.
+- **kube-score CRITICAL** — большая часть про отсутствие `readinessProbe`/`livenessProbe` у observability-сервисов (Loki, Promtail, Grafana). Для homelab допустимо — сервисы не критичны для основной функции.
+- **Checkov Failed** — про хранение `postgresPassword` в values (в проде — через External Secrets Operator), про отсутствие `NetworkPolicy` на некоторых сервисах, про отсутствие pod security policies.
+
+Полное обоснование по каждому пункту — в **[SECURITY.md](SECURITY.md)**. В проде каждый из этих пунктов закрывается: ESO для секретов, default-deny NetworkPolicy для всего namespace, OPA/Gatekeeper для policy-as-code.
 
 ## 🔑 Управление секретами
 
@@ -468,7 +555,8 @@ helm upgrade --install opc-monitor ./helm/opc-monitor \
 - `helm/opc-monitor/values-secrets.yaml` — в `.gitignore`
 - `.env`, `.env.*` — в `.gitignore`
 - `terraform/terraform.tfvars` — в `.gitignore`
-- `security-audit/` — в `.gitignore` (локальные отчёты сканеров)
+- `security-audit/` — в `.gitignore`
+- `coverage.xml`, `.coverage` — в `.gitignore`
 
 ### Продакшен-подходы
 
@@ -482,9 +570,8 @@ helm upgrade --install opc-monitor ./helm/opc-monitor \
 ## 🧪 Тестирование
 
 ```bash
-pip install -r requirements.txt
-pytest tests/ -v
-pytest tests/ -v --cov=. --cov-report=term-missing
+make test                    # pytest + coverage + порог 63%
+make test-fast               # без coverage, быстрее
 ```
 
 **41 тест** покрывают:
@@ -502,17 +589,40 @@ pytest tests/ -v --cov=. --cov-report=term-missing
 - Metrics (`/metrics`)
 - Root (`/`)
 
+### Покрытие
+
+**~68%** (branch coverage, только код, предназначенный для unit-тестов).
+
+Из подсчёта **исключены**:
+- `client.py`, `server.py` — отдельные сервисы, тестируются интеграционно
+- `db.py` — SQLAlchemy-слой, требует реальной БД
+- `tracing.py` — инициализация OTel с побочными эффектами
+- `*/tests/*`, `*/__pycache__/*`, `conftest.py`
+
+Конфиг — в `.coveragerc`. Порог `--cov-fail-under=63` в CI (запас 5 п.п. от фактического).
+
+Бейдж покрытия — [Codecov](https://codecov.io/gh/Rosimus/opc-monitor).
+
 ## 📁 Структура проекта
 
 ```
 opc-monitor/
-├── .github/workflows/           # CI/CD
-│   ├── ci.yml                   # tests + build + Trivy + push
-│   ├── cd.yml                   # deploy через Helm
-│   └── codeql.yml               # SAST (GitHub Advanced Security)
-├── .github/dependabot.yml       # auto-update deps + SHA-pins
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml               # tests + coverage + build + Trivy + push
+│   │   ├── cd.yml               # deploy через Helm (--force-conflicts)
+│   │   └── codeql.yml           # SAST (GitHub Advanced Security)
+│   └── dependabot.yml           # auto-update deps + SHA-pins
 ├── argocd/
 │   └── application.yaml         # ArgoCD Application (GitOps)
+├── docs/
+│   ├── RUNBOOK.md
+│   ├── adr/                     # Architecture Decision Records
+│   │   ├── 0001-flask-vs-fastapi.md
+│   │   ├── 0002-loki-vs-elk.md
+│   │   ├── 0003-k3s-vs-kind.md
+│   │   └── 0004-self-hosted-runner.md
+│   └── screenshots/
 ├── helm/opc-monitor/            # Helm-чарт
 │   ├── Chart.yaml
 │   ├── values.yaml
@@ -525,11 +635,11 @@ opc-monitor/
 ├── k8s/                         # Kubernetes-манифесты (kubectl)
 ├── monitoring/
 │   ├── prometheus.yml
-│   ├── alerts.yml               # правила алертов
+│   ├── alerts.yml
 │   ├── alertmanager.yml
-│   ├── loki-config.yml          # конфиг Loki
-│   ├── promtail-config.yml      # конфиг Promtail
-│   ├── grafana-datasources.yml  # provisioning datasources
+│   ├── loki-config.yml
+│   ├── promtail-config.yml
+│   ├── grafana-datasources.yml
 │   ├── grafana-dashboards.yml
 │   └── grafana-dashboard.json
 ├── terraform/                   # IaC для Yandex Cloud
@@ -538,14 +648,11 @@ opc-monitor/
 │   ├── conftest.py
 │   ├── test_utils.py
 │   └── test_api.py
-├── docs/
-│   ├── RUNBOOK.md
-│   └── screenshots/
 ├── static/js/                   # локальные библиотеки (были в CDN)
-│   ├── app.js
+│   ├── app.js                   # + event delegation для CSP
 │   ├── chart.umd.min.js
 │   ├── jwt-decode.min.js
-│   ├── socket.io.min.js
+│   ├── socket.io.min.js         # не подключён, оставлен на будущее
 │   └── xlsx.full.min.js
 ├── templates/index.html
 ├── client.py                    # OPC UA клиент
@@ -559,6 +666,8 @@ opc-monitor/
 ├── docker-compose.yml
 ├── requirements.txt
 ├── pytest.ini
+├── .coveragerc                  # конфиг coverage.py
+├── Makefile                     # типовые операции
 ├── .bandit                      # конфиг Bandit
 ├── SECURITY.md                  # отчёт аудита и принятые риски
 └── README.md
@@ -572,7 +681,7 @@ opc-monitor/
 |--------|----------|
 | **VPC Network** | Сеть с публичной и приватными подсетями |
 | **NAT Gateway** | Интернет-доступ для приватных подсетей |
-| **Security Group** | Правила firewall: SSH по IP владельца, k3s API/VXLAN/kubelet — internal |
+| **Security Group** | SSH по IP владельца, k3s API/VXLAN/kubelet — internal |
 | **k3s Master** | VM с k3s control-plane |
 | **k3s Workers ×2** | VM с k3s агентами в разных зонах |
 | **Managed PostgreSQL** | Кластер БД (s2.micro, 20 GB SSD) |
@@ -584,6 +693,8 @@ terraform init && terraform validate && terraform plan
 terraform apply     # создаст платные ресурсы
 terraform destroy   # удалит
 ```
+
+**Стоимость:** ~1 200 ₽/мес при работе 24/7 (3× preemptible VM + managed PostgreSQL s2.micro). После демо — `terraform destroy`.
 
 ## 📊 API Endpoints
 
@@ -603,6 +714,49 @@ terraform destroy   # удалит
 | `GET` | `/metrics` | Prometheus метрики | — |
 
 Полная документация: http://localhost:5000/api/docs
+
+## 📚 Architecture Decision Records
+
+Ключевые технические решения задокументированы как ADR — короткие заметки с контекстом, решением и последствиями. Это помогает будущему читателю (и мне самому через полгода) понять, почему выбрано именно так.
+
+- [ADR-0001: Flask vs FastAPI](docs/adr/0001-flask-vs-fastapi.md)
+- [ADR-0002: Loki + Promtail vs ELK Stack](docs/adr/0002-loki-vs-elk.md)
+- [ADR-0003: k3s vs kind для локального кластера](docs/adr/0003-k3s-vs-kind.md)
+- [ADR-0004: Self-hosted runner vs GitHub-hosted](docs/adr/0004-self-hosted-runner.md)
+
+## 🗺️ Roadmap
+
+Планы по развитию проекта:
+
+### Безопасность
+- [ ] **CSP без `'unsafe-inline'` в `style-src`** — вынос inline-стилей в CSS-классы
+- [ ] **OPA/Gatekeeper** — policy-as-code для манифестов (запрет `:latest`, обязательные labels)
+- [ ] **External Secrets Operator** — синхронизация секретов из Vault / Yandex Lockbox
+- [ ] **a11y: связка label ↔ input** — устранить warnings Chrome DevTools (Issues)
+
+### Надёжность
+- [ ] **HPA для web** — автоскейлинг по CPU/RPS
+- [ ] **VPA** в режиме `Off` — рекомендации по requests/limits
+- [ ] **k6 load testing** — 100 RPS baseline + графики в Grafana
+- [ ] **Integration-тесты БД** — покрытие `db.py` на in-memory SQLite
+
+### DevOps
+- [ ] **Multi-cluster ArgoCD** через ApplicationSet — staging + prod в одном UI
+- [ ] **GitHub Actions: OIDC** вместо долгоживущих токенов
+- [ ] **Trivy SBOM** — генерация и публикация Software Bill of Materials
+
+### Документация
+- [ ] **English README** — для международных ролей
+- [ ] **GIF с asciinema** — визуализация `terraform plan` и деплоя
+
+## 🎓 Чему я научился
+
+- **GitOps ≠ «деплой через CI».** ArgoCD вытягивает состояние из Git, CI только пушит образ. Поначалу смешивал эти роли.
+- **Observability — это связка, а не три отдельных инструмента.** Корреляция logs ↔ traces через `trace_id` даёт больше, чем каждый стек по отдельности. Именно поэтому добавил `X-Trace-Id` в заголовки HTTP-ответов.
+- **Self-hosted runner — компромисс.** Бесплатно и быстро для homelab, но секьюрность и uptime — на тебе.
+- **«0 CVE» — это процесс, а не разовая проверка.** Dependabot + SHA-пины + cooldown 7 дней важнее, чем текущий результат сканера.
+- **Coverage — не самоцель.** Сначала исключил из подсчёта то, что не предназначено для unit-тестов (`client.py`, `server.py`, `db.py`), потом стал смотреть на цифру. Порог `--cov-fail-under` поставил с запасом — чтобы CI не падал от случайного рефакторинга.
+- **`minikube image load` не перезаписывает образ с тем же тегом.** Один из самых коварных моментов при локальной разработке в Minikube — используем уникальный тег для каждой сборки.
 
 ## 📝 Лицензия
 
