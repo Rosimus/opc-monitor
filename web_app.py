@@ -171,12 +171,19 @@ init_tracing(app, engine=db.engine)
 # ============================================
 @app.after_request
 def add_security_headers(response):
-    """HTML не кэшируем + COEP для защиты от side-channel атак."""
+    """HTML не кэшируем + COEP для защиты от side-channel атак + X-Trace-Id."""
     if response.content_type and 'text/html' in response.content_type:
         response.headers['Cache-Control'] = 'no-store, must-revalidate'
     # COEP: безопасно, потому что все скрипты теперь same-origin (static/js/)
     response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
     response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+
+    # Корреляция с логами и Jaeger: каждый ответ получает trace_id текущего span
+    span = otel_trace.get_current_span()
+    ctx = span.get_span_context() if span else None
+    if ctx is not None and ctx.is_valid:
+        response.headers['X-Trace-Id'] = format(ctx.trace_id, "032x")
+
     return response
 
 

@@ -1,0 +1,22 @@
+[run]
+source = .
+branch = True
+omit =
+    */tests/*
+    */__pycache__/*
+    */conftest.py
+    client.py
+    server.py
+    db.py
+    tracing.py
+    setup.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    @abstractmethod
+show_missing = True

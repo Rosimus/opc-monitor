@@ -129,3 +129,4 @@ security-audit/
 k8s-all.txt
 
 # Bandit
+coverage.xml
