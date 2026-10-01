@@ -204,4 +204,103 @@ opcConfig:
       warning_high: 53.0
       alarm_high: 54.0
 
-
+# ============================================================
+# Vertical Pod Autoscaler (VPA)
+# ============================================================
+# Modes:
+#   "Off"     — recommendations only; pods are never touched
+#   "Initial" — applied to NEW pods on restart (requires admission-controller)
+#   "Recreate" — evicts pods to apply (conflicts with HPA!)
+#
+# All targets use "Off" because:
+#   - web has HPA (target CPU % is relative to requests — changing requests breaks scaling)
+#   - stateful services (postgres, redis, prometheus, loki, grafana, jaeger)
+#     have PVCs and RTO/RPO concerns
+#   - others are not critical to tune automatically
+#
+# Recommendations are visible via:
+#   kubectl describe vpa <name>-vpa -n opc-monitor
+vpa:
+  enabled: false
+  targets:
+    - name: web
+      mode: "Off"
+      minAllowed:
+        cpu: "50m"
+        memory: "128Mi"
+      maxAllowed:
+        cpu: "1000m"
+        memory: "1Gi"
+    - name: client
+      mode: "Off"
+      minAllowed:
+        cpu: "20m"
+        memory: "64Mi"
+      maxAllowed:
+        cpu: "500m"
+        memory: "512Mi"
+    - name: server
+      mode: "Off"
+      minAllowed:
+        cpu: "20m"
+        memory: "64Mi"
+      maxAllowed:
+        cpu: "500m"
+        memory: "512Mi"
+    - name: postgres
+      kind: StatefulSet
+      mode: "Off"
+      minAllowed:
+        cpu: "100m"
+        memory: "256Mi"
+      maxAllowed:
+        cpu: "2000m"
+        memory: "2Gi"
+    - name: redis
+      mode: "Off"
+      minAllowed:
+        cpu: "50m"
+        memory: "64Mi"
+      maxAllowed:
+        cpu: "500m"
+        memory: "512Mi"
+    - name: grafana
+      mode: "Off"
+      minAllowed:
+        cpu: "50m"
+        memory: "128Mi"
+      maxAllowed:
+        cpu: "1000m"
+        memory: "1Gi"
+    - name: prometheus
+      mode: "Off"
+      minAllowed:
+        cpu: "100m"
+        memory: "256Mi"
+      maxAllowed:
+        cpu: "2000m"
+        memory: "2Gi"
+    - name: loki
+      mode: "Off"
+      minAllowed:
+        cpu: "50m"
+        memory: "128Mi"
+      maxAllowed:
+        cpu: "1000m"
+        memory: "1Gi"
+    - name: jaeger
+      mode: "Off"
+      minAllowed:
+        cpu: "50m"
+        memory: "128Mi"
+      maxAllowed:
+        cpu: "1000m"
+        memory: "1Gi"
+    - name: alertmanager
+      mode: "Off"
+      minAllowed:
+        cpu: "30m"
+        memory: "64Mi"
+      maxAllowed:
+        cpu: "300m"
+        memory: "256Mi"

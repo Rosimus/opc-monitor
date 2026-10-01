@@ -9,5 +9,8 @@ web:
     maxReplicas: 5
     targetCPU: 70
 
+vpa:
+  enabled: true
+
 ingress:
   enabled: false

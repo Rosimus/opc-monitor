@@ -1,4 +1,4 @@
-.PHONY: help test test-fast lint build deploy-local destroy rollback logs status
+.PHONY: help test test-fast lint build deploy-local destroy rollback logs status hpa vpa
 
 help:
 	@echo "Available commands:"
@@ -12,6 +12,7 @@ help:
 	@echo "  make logs         - tail web pod logs"
 	@echo "  make destroy      - uninstall Helm release"
 	@echo "  make hpa          - show HPA status and current replica count"
+	@echo "  make vpa          - show VPA recommendations"
 
 NAMESPACE ?= opc-monitor
 RELEASE   ?= opc-monitor
@@ -49,6 +50,9 @@ logs:
 hpa:
 	kubectl get hpa -n $(NAMESPACE)
 	kubectl get deployment web -n $(NAMESPACE)
+
+vpa:
+	kubectl get vpa -n $(NAMESPACE)
 
 destroy:
 	helm uninstall $(RELEASE) -n $(NAMESPACE)
