@@ -28,7 +28,9 @@ metadata:
     app: web
     {{- include "opc-monitor.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.web.hpa.enabled }}
   replicas: {{ .Values.web.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app: web

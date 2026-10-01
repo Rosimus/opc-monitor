@@ -4,7 +4,10 @@ global:
 web:
   replicaCount: 2
   hpa:
-    enabled: false
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPU: 70
 
 ingress:
   enabled: false
