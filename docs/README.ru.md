@@ -653,9 +653,13 @@ opc-monitor/
 │   ├── RUNBOOK.md
 │   ├── adr/                     # Architecture Decision Records
 │   │   ├── 0001-flask-vs-fastapi.md
+│   │   ├── 0001-flask-vs-fastapi.ru.md
 │   │   ├── 0002-loki-vs-elk.md
+│   │   ├── 0002-loki-vs-elk.ru.md
 │   │   ├── 0003-k3s-vs-kind.md
-│   │   └── 0004-self-hosted-runner.md
+│   │   ├── 0003-k3s-vs-kind.ru.md
+│   │   ├── 0004-self-hosted-runner.md
+│   │   └── 0004-self-hosted-runner.ru.md
 │   └── screenshots/
 ├── helm/opc-monitor/            # Helm-чарт
 │   ├── Chart.yaml
@@ -756,10 +760,10 @@ terraform destroy   # удалит
 
 Ключевые технические решения задокументированы как ADR — короткие заметки с контекстом, решением и последствиями. Это помогает будущему читателю (и мне самому через полгода) понять, почему выбрано именно так.
 
-- [ADR-0001: Flask vs FastAPI](adr/0001-flask-vs-fastapi.md)
-- [ADR-0002: Loki + Promtail vs ELK Stack](adr/0002-loki-vs-elk.md)
-- [ADR-0003: k3s vs kind для локального кластера](adr/0003-k3s-vs-kind.md)
-- [ADR-0004: Self-hosted runner vs GitHub-hosted](adr/0004-self-hosted-runner.md)
+- [ADR-0001: Flask vs FastAPI](adr/0001-flask-vs-fastapi.ru.md)
+- [ADR-0002: Loki + Promtail vs ELK Stack](adr/0002-loki-vs-elk.ru.md)
+- [ADR-0003: k3s vs kind для локального кластера](adr/0003-k3s-vs-kind.ru.md)
+- [ADR-0004: Self-hosted runner vs GitHub-hosted](adr/0004-self-hosted-runner.ru.md)
 
 ## 🗺️ Roadmap
 
@@ -782,7 +786,7 @@ terraform destroy   # удалит
 - [ ] **Trivy SBOM** — генерация и публикация Software Bill of Materials
 
 ### Документация
-- [ ] **English ADR translations** — перевод ADR на английский
+- [x] **English ADR translations** — перевод ADR на английский
 - [ ] **GIF с asciinema** — визуализация `terraform plan` и деплоя
 
 ## 🎓 Чему я научился

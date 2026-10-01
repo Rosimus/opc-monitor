@@ -1,54 +1,54 @@
-# ADR-0002: Loki + Promtail vs ELK Stack для централизованных логов
+# ADR-0002: Loki + Promtail vs ELK Stack for centralized logs
 
-- **Статус:** Accepted
-- **Дата:** 2026-09
-- **Контекст:** выбор стека для сбора, хранения и поиска логов
+- **Status:** Accepted
+- **Date:** 2026-09
+- **Context:** choosing a log aggregation and search stack
 
 ## Context
 
-Проект — 9 контейнеров в Kubernetes. Нужна централизованная система логирования, которая:
+The project runs 9 containers in Kubernetes. It needs centralized logging that:
 
-- Собирает логи со всех подов в namespace `opc-monitor`
-- Позволяет искать по regex и по labels (`pod`, `container`)
-- Интегрируется с Grafana для единого UI
-- Не жрёт много ресурсов (проект крутится в Minikube с 6 GB RAM)
-- Хорошо коррелирует с трейсами (OpenTelemetry + Jaeger)
+- Collects logs from all pods in the `opc-monitor` namespace
+- Supports regex search and label-based filtering (`pod`, `container`)
+- Integrates with Grafana for a single-pane UI
+- Does not consume much memory (the whole stack runs in Minikube with 6 GB RAM)
+- Correlates well with traces (OpenTelemetry + Jaeger)
 
 ## Decision
 
-**Выбрана связка Loki + Promtail.**
+**Loki + Promtail was chosen.**
 
-Ключевые причины:
+Key reasons:
 
-- **Лёгкость.** Loki индексирует только **labels**, а не содержимое строк. Это радикально снижает потребление RAM и диска по сравнению с Elasticsearch.
-- **Grafana из коробки.** Loki — часть экосистемы Grafana Labs, интеграция с Grafana Explore — «родная». Единый UI: metrics + logs + traces в одном окне.
-- **Promtail** умеет автоматически собирать логи из `/var/log/containers/*.log` и обогащать их Kubernetes-labels (`namespace`, `pod`, `container`, `node`).
-- **Отличная корреляция с трейсами.** Loki понимает `trace_id` как label и умеет строить ссылки на Jaeger. Это использовано в проекте: из лога кликом переходишь в трейс.
+- **Lightweight.** Loki indexes only **labels**, not line content. This dramatically reduces RAM and disk usage compared to Elasticsearch.
+- **Native Grafana integration.** Loki is part of the Grafana Labs ecosystem; integration with Grafana Explore is first-class. Single UI: metrics + logs + traces.
+- **Promtail** automatically collects logs from `/var/log/containers/*.log` and enriches them with Kubernetes labels (`namespace`, `pod`, `container`, `node`).
+- **Excellent trace correlation.** Loki understands `trace_id` as a label and can build links to Jaeger. This is used in the project: a single click from a log entry jumps to the corresponding trace.
 
 ## Consequences
 
-**Плюсы:**
+**Pros:**
 
-- Потребление RAM в 5–10 раз ниже, чем у Elasticsearch. Для Minikube это критично.
-- Единый UI (Grafana) для метрик, логов и трейсов.
-- Простая конфигурация через ConfigMap.
-- Хорошо масштабируется горизонтально (Loki — stateless по чтению, storage выносится в S3/MinIO).
+- RAM usage is 5–10× lower than Elasticsearch. Critical for Minikube.
+- Single UI (Grafana) for metrics, logs, and traces.
+- Simple configuration via ConfigMap.
+- Scales horizontally well (Loki is stateless for reads; storage can be offloaded to S3 / MinIO).
 
-**Минусы:**
+**Cons:**
 
-- Полнотекстовый поиск менее мощный, чем в Elasticsearch: Loki **не** индексирует содержимое, только labels. Запросы по regex сканируют данные — на больших объёмах медленнее.
-- Меньше готовых плагинов и экосистемы, чем у ELK.
+- Full-text search is less powerful than Elasticsearch: Loki does **not** index content, only labels. Regex queries scan data — slower on large volumes.
+- Smaller plugin ecosystem than ELK.
 
-**Практическое ограничение:** для нашего объёма логов (~несколько MB/день) производительности Loki более чем достаточно. При росте до десятков GB/день нужно будет настраивать индексацию по ключевым полям.
+**Practical limit:** for our log volume (a few MB/day), Loki's performance is more than sufficient. At tens of GB/day, we would need to tune indexing for key fields.
 
 ## Alternatives considered
 
-**ELK (Elasticsearch + Logstash + Kibana)** — индустриальный стандарт. Но:
+**ELK (Elasticsearch + Logstash + Kibana)** — industry standard. However:
 
-- Elasticsearch требует ~2 GB RAM даже на минимальной конфигурации — это треть всего нашего кластера.
-- Logstash тяжёлый, часто заменяется на Fluent Bit / Fluentd.
-- Kibana — отдельный UI, не интегрирован с Grafana (пришлось бы держать два окна).
+- Elasticsearch needs ~2 GB RAM at minimum — a third of our entire cluster.
+- Logstash is heavy and is commonly replaced by Fluent Bit / Fluentd.
+- Kibana is a separate UI, not integrated with Grafana (we would need two windows).
 
-**Fluent Bit + S3 + Athena** — дешёвое решение для больших объёмов, но нет real-time поиска.
+**Fluent Bit + S3 + Athena** — cheap for large volumes, but no real-time search.
 
-**Vector + ClickHouse** — интересный вариант, но менее мейнстримный и требует отдельного UI (Grafana плагин для ClickHouse).
+**Vector + ClickHouse** — interesting option, but less mainstream and requires a separate UI (Grafana plugin for ClickHouse).

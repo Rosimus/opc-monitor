@@ -1,63 +1,63 @@
-# ADR-0003: k3s vs kind для локального и облачного Kubernetes
+# ADR-0003: k3s vs kind for local and cloud Kubernetes
 
-- **Статус:** Accepted
-- **Дата:** 2026-09
-- **Контекст:** выбор дистрибутива Kubernetes для локальной разработки и для облачного развёртывания
+- **Status:** Accepted
+- **Date:** 2026-09
+- **Context:** choosing a Kubernetes distribution for local development and cloud deployment
 
 ## Context
 
-Проект разворачивается в двух окружениях:
+The project is deployed in two environments:
 
-1. **Локально** — для разработки и демонстрации в портфолио. Требования: быстрый старт, минимальные ресурсы, не ломать Docker Desktop.
-2. **Облако (Yandex Cloud)** — для реализации IaC через Terraform. Требования: реальные VM, kubelet в Linux, возможность показать skill работы с облачной инфраструктурой.
+1. **Locally** — for development and portfolio demonstration. Requirements: fast start, minimal resources, does not break Docker Desktop.
+2. **Cloud (Yandex Cloud)** — for Terraform-based IaC. Requirements: real VMs, kubelet on Linux, a chance to demonstrate cloud infrastructure skills.
 
-Также важна совместимость с Helm-чартом и возможность покрыть всё (observability-стек, ArgoCD) в одном namespace.
+Helm chart compatibility and the ability to run the full stack (observability, ArgoCD) in one namespace are also important.
 
 ## Decision
 
-- **Локально:** Minikube (driver=docker).
-- **Облако:** k3s на VM.
+- **Locally:** Minikube (docker driver).
+- **Cloud:** k3s on VMs.
 
-Причины:
+Reasons:
 
-- **Minikube локально** — самая простая установка на Windows, не требует WSL2 для работы (хотя рекомендуется). Позволяет легко создавать тома (PersistentVolumeClaim) через стандартный `standard` StorageClass.
-- **k3s в облаке** — минимальный дистрибутив Kubernetes (~50 MB бинарник), отлично работает на preemptible VM с 2 vCPU / 4 GB RAM. Убирает зависимость от managed k8s (дорого) и позволяет показать, что умею разворачивать control plane вручную.
-- **kind** отпадает для облака: он предназначен для CI и локальных тестов, а не для «настоящего» кластера. Плюс на VM требует Docker-in-Docker.
+- **Minikube locally** — simplest setup on Windows, does not require WSL2 (though recommended). PersistentVolumeClaims are easy to create via the standard `standard` StorageClass.
+- **k3s in cloud** — minimal Kubernetes distribution (~50 MB binary), works well on preemptible VMs with 2 vCPU / 4 GB RAM. Avoids the cost of managed k8s and demonstrates the ability to bring up a control plane manually.
+- **kind** is out for cloud: it is designed for CI and local tests, not for a "real" cluster. It also requires Docker-in-Docker on a VM.
 
 ## Consequences
 
-**Плюсы Minikube локально:**
+**Pros of Minikube locally:**
 
-- Один бинарник, установка через `choco install minikube` или скачивание exe.
-- Поддерживает docker driver — не требует Hyper-V / WSL2.
-- `minikube image load` для локальной сборки без push в registry.
-- `minikube tunnel` для LoadBalancer-сервисов.
+- Single binary; install via `choco install minikube` or download the exe.
+- Supports the docker driver — no Hyper-V / WSL2 required.
+- `minikube image load` for local builds without pushing to a registry.
+- `minikube tunnel` for LoadBalancer services.
 
-**Плюсы k3s в облаке:**
+**Pros of k3s in cloud:**
 
-- Минимальное потребление RAM (~500 MB для control plane).
-- Встроенные Traefik + ServiceLB + local-path-provisioner.
-- Простая установка: `curl -sfL https://get.k3s.io | sh -`.
-- `k3s token` для подключения воркеров — пара команд.
+- Minimal RAM footprint (~500 MB for the control plane).
+- Bundled Traefik + ServiceLB + local-path-provisioner.
+- Simple install: `curl -sfL https://get.k3s.io | sh -`.
+- `k3s token` for joining workers — a couple of commands.
 
-**Минусы:**
+**Cons:**
 
-- Minikube **не перезаписывает** образ с тем же тегом при `minikube image load` (см. README, раздел «Локальная разработка»). Обходится через уникальный тег для каждой сборки.
-- k3s в облаке — отдельная инфраструктура, нужно управлять обновлениями вручную (в отличие от managed k8s).
+- Minikube does **not** overwrite an image with the same tag on `minikube image load` (see README, "Local Development" section). Workaround: unique tag per build.
+- k3s in cloud is a separate infrastructure — upgrades are managed manually (unlike managed k8s).
 
 ## Alternatives considered
 
-**kind (Kubernetes in Docker)** — легковесный, широко используется в CI. Но:
+**kind (Kubernetes in Docker)** — lightweight, widely used in CI. However:
 
-- Требует Docker-in-Docker для запуска внутри VM, что усложняет настройку.
-- Не имеет встроенного LoadBalancer и StorageClass — всё ставить отдельно.
-- Для локальной разработки на Windows лучше подходит Minikube (более зрелый DX).
+- Requires Docker-in-Docker inside a VM, which complicates setup.
+- No built-in LoadBalancer or StorageClass — everything must be installed separately.
+- For local development on Windows, Minikube is a more mature DX.
 
-**Docker Desktop Kubernetes** — простой, встроен в Docker Desktop. Но:
+**Docker Desktop Kubernetes** — simple, bundled with Docker Desktop. However:
 
-- Ограниченная настройка (нет выбора версии, драйвера, ресурсов).
-- Нельзя смоделировать multi-node.
+- Limited configurability (no choice of version, driver, resources).
+- Cannot model multi-node setups.
 
-**kubeadm** — «ручной» способ поднять кластер. Максимальная гибкость, но много boilerplate и времени на поддержку. Для pet-проекта избыточно.
+**kubeadm** — the "manual" way. Maximum flexibility, but lots of boilerplate and maintenance time. Overkill for a pet project.
 
-**Managed Kubernetes (Yandex Managed k8s)** — удобно, но дорого (стартовая цена ~5 000 ₽/мес за master). Для демонстрации навыков Terraform + ручного k3s более показательно.
+**Managed Kubernetes (Yandex Managed k8s)** — convenient, but expensive (starting at ~5,000 ₽/month for the control plane alone). For demonstrating Terraform skills and a manual k3s setup, self-managed is more illustrative.

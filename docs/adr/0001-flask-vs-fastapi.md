@@ -1,53 +1,53 @@
-# ADR-0001: Flask vs FastAPI для REST API
+# ADR-0001: Flask vs FastAPI for the REST API
 
-- **Статус:** Accepted
-- **Дата:** 2026-09
-- **Контекст:** выбор веб-фреймворка для backend-сервиса OPC Monitor
+- **Status:** Accepted
+- **Date:** 2026-09
+- **Context:** choosing a web framework for the OPC Monitor backend
 
 ## Context
 
-Для backend-сервиса нужен веб-фреймворк, который поддерживает:
+The backend service needs a web framework that supports:
 
-- REST API с автогенерируемой документацией
-- JWT-аутентификацию
-- Prometheus-метрики
-- OpenTelemetry-инструментацию
-- Rate limiting и security headers
-- Рендеринг HTML-шаблонов для UI
+- REST API with auto-generated documentation
+- JWT authentication
+- Prometheus metrics
+- OpenTelemetry instrumentation
+- Rate limiting and security headers
+- HTML template rendering for the UI
 
-Проект — pet-портфолио: важна скорость разработки и узнаваемость стека для рекрутеров.
+This is a portfolio project: development speed and stack recognizability for recruiters matter.
 
 ## Decision
 
-**Выбран Flask.**
+**Flask was chosen.**
 
-Ключевые причины:
+Key reasons:
 
-- **Зрелая экосистема расширений** — `flask-jwt-extended`, `flask-limiter`, `flask-talisman`, `flask-cors`, `flask-swagger-ui`. В FastAPI аналогичные вещи делаются либо через middleware вручную, либо через менее зрелые пакеты.
-- **Автогенерация Swagger** работает через `flask-swagger-ui` + статический `swagger.json`. В FastAPI это «бесплатно» через Pydantic, но для нашего объёма API это не критично.
-- **Шаблонизатор Jinja2 из коробки.** В FastAPI для рендеринга HTML нужно подключать `Jinja2Templates` вручную.
-- **Привычный стек.** Опыта с Flask больше — меньше времени на изучение специфики.
+- **Mature extension ecosystem** — `flask-jwt-extended`, `flask-limiter`, `flask-talisman`, `flask-cors`, `flask-swagger-ui`. FastAPI equivalents are either hand-rolled middleware or less mature packages.
+- **Swagger generation** works through `flask-swagger-ui` + a static `swagger.json`. FastAPI gives this "for free" via Pydantic, but for our API size it is not critical.
+- **Jinja2 templating out of the box.** In FastAPI, HTML rendering requires wiring up `Jinja2Templates` manually.
+- **Familiar stack.** More prior experience with Flask — less time spent learning framework specifics.
 
 ## Consequences
 
-**Плюсы:**
+**Pros:**
 
-- Быстрая разработка — расширения закрывают рутинные задачи (JWT, rate limit, security headers) из коробки.
-- Соответствие «классическому» Python-стеку, понятному большинству рекрутеров.
-- Большое количество примеров и статей в интернете.
+- Fast development — extensions cover routine tasks (JWT, rate limiting, security headers) out of the box.
+- Aligns with the "classic" Python stack, familiar to most recruiters.
+- Large volume of examples and articles.
 
-**Минусы:**
+**Cons:**
 
-- Нет автовалидации входных данных (в FastAPI — Pydantic). Валидация делается вручную (`request.get_json(silent=True)` + проверки).
-- Нет `async/await` — WSGI-сервер Gunicorn + eventlet. Для нашего профиля нагрузки (десятки RPS) этого достаточно, но при 10k+ RPS FastAPI был бы предпочтительнее.
-- Медленнее в бенчмарках (WSGI vs ASGI).
+- No automatic request validation (FastAPI has Pydantic). Validation is done manually via `request.get_json(silent=True)` + explicit checks.
+- No `async/await` — WSGI server (Gunicorn + gthread workers). Adequate for our load profile (tens of RPS), but FastAPI would be preferable at 10k+ RPS.
+- Slower in benchmarks (WSGI vs ASGI).
 
-**Миграция:** если проект вырастет до микросервисной архитектуры, часть эндпоинтов можно переписать на FastAPI без переделки всего приложения — они могут сосуществовать за одним API Gateway.
+**Migration:** if the project grows into a microservice architecture, individual endpoints can be rewritten in FastAPI without touching the rest of the application — both can coexist behind an API gateway.
 
 ## Alternatives considered
 
-**FastAPI** — отличный выбор для новых проектов с высокими требованиями к throughput и валидации. Для нашего pet-проекта избыточен: пришлось бы тянуть Pydantic-схемы для каждого эндпоинта и разбираться с новыми библиотеками для JWT/rate-limit.
+**FastAPI** — an excellent choice for new projects with high throughput and validation requirements. For this pet project it is overkill: we would need to introduce Pydantic schemas for every endpoint and pick up new libraries for JWT / rate limiting.
 
-**Aiohttp** — слишком низкоуровневый, много boilerplate. Не стоит того для CRUD-приложения.
+**Aiohttp** — too low-level, lots of boilerplate. Not worth it for a CRUD application.
 
-**Django + DRF** — «тяжёлый» фреймворк с ORM, admin, миграциями. Для нашего объёма — overkill, плюс Django-ORM не так гибка в нашем случае, где мы работаем с raw SQL через SQLAlchemy.
+**Django + DRF** — a "heavy" framework with ORM, admin, migrations. Overkill for our scope; Django ORM is also less flexible than raw SQL via SQLAlchemy in our case.

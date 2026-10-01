@@ -651,11 +651,15 @@ opc-monitor/
 ├── docs/
 │   ├── README.ru.md             # Russian version of this README
 │   ├── RUNBOOK.md
-│   ├── adr/                     # Architecture Decision Records (in Russian)
+│   ├── adr/                     # Architecture Decision Records
 │   │   ├── 0001-flask-vs-fastapi.md
+│   │   ├── 0001-flask-vs-fastapi.ru.md
 │   │   ├── 0002-loki-vs-elk.md
+│   │   ├── 0002-loki-vs-elk.ru.md
 │   │   ├── 0003-k3s-vs-kind.md
-│   │   └── 0004-self-hosted-runner.md
+│   │   ├── 0003-k3s-vs-kind.ru.md
+│   │   ├── 0004-self-hosted-runner.md
+│   │   └── 0004-self-hosted-runner.ru.md
 │   └── screenshots/
 ├── helm/opc-monitor/            # Helm chart
 │   ├── Chart.yaml
@@ -761,8 +765,6 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 - [ADR-0003: k3s vs kind for local cluster](docs/adr/0003-k3s-vs-kind.md)
 - [ADR-0004: Self-hosted runner vs GitHub-hosted](docs/adr/0004-self-hosted-runner.md)
 
-*(ADRs are currently written in Russian. English translations are on the roadmap.)*
-
 ## 🗺️ Roadmap
 
 ### Security
@@ -782,7 +784,7 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 - [ ] **Trivy SBOM** — generate and publish a Software Bill of Materials
 
 ### Documentation
-- [ ] **English ADR translations**
+- [x] **English ADR translations**
 - [ ] **GIF with asciinema** — visualize `terraform plan` and deployment
 
 ## 🎓 Lessons Learned
