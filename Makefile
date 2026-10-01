@@ -11,6 +11,7 @@ help:
 	@echo "  make status       - show pods in opc-monitor namespace"
 	@echo "  make logs         - tail web pod logs"
 	@echo "  make destroy      - uninstall Helm release"
+	@echo "  make hpa          - show HPA status and current replica count"
 
 NAMESPACE ?= opc-monitor
 RELEASE   ?= opc-monitor
@@ -33,7 +34,8 @@ build:
 deploy-local:
 	helm upgrade --install $(RELEASE) $(CHART) \
 		-n $(NAMESPACE) --create-namespace \
-		-f $(VALUES)
+		-f $(VALUES) \
+		--force-conflicts
 
 rollback:
 	helm rollback $(RELEASE) -n $(NAMESPACE)
@@ -43,6 +45,10 @@ status:
 
 logs:
 	kubectl logs -n $(NAMESPACE) deployment/web --tail=100
+
+hpa:
+	kubectl get hpa -n $(NAMESPACE)
+	kubectl get deployment web -n $(NAMESPACE)
 
 destroy:
 	helm uninstall $(RELEASE) -n $(NAMESPACE)
