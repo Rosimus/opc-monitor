@@ -15,7 +15,7 @@
 
 **🇬🇧 [English version](../README.md)** | 🇷🇺 Русская версия
 
-> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 41 тест, 68% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
+> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 41 тест, 68% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде, VPA в режиме `Off` для right-sizing. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
 
 ## 📋 Содержание
 
@@ -67,6 +67,7 @@
 - 🔀 **ArgoCD** — GitOps-подход (pull-модель деплоя)
 - ✅ **41 тест** (29 unit + 12 integration) + Codecov, порог покрытия 63%
 - 📈 **HPA** — CPU-автоскейлинг web-подов (2–5 реплик в проде)
+- 📐 **VPA в режиме `Off`** — рекомендации по right-sizing для всех workload'ов
 - 📦 **GHCR** — автоматическая загрузка образов
 - 🛡️ **Security Hardened** — строгий CSP (без `unsafe-inline` в `script-src`), полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint/CodeQL
 
@@ -232,6 +233,7 @@ make rollback        # helm rollback
 make status          # kubectl get pods -n opc-monitor
 make logs            # логи web-пода
 make hpa             # статус HPA и deployment web
+make vpa             # рекомендации VPA
 make destroy         # helm uninstall
 ```
 
@@ -434,11 +436,36 @@ curl -sI http://localhost:5000/health | grep -i x-trace-id
 make status                                        # kubectl get pods -n opc-monitor
 make logs                                          # логи web-пода
 make hpa                                           # статус HPA
+make vpa                                           # рекомендации VPA
 make rollback                                      # helm rollback
 kubectl rollout restart deployment/web -n opc-monitor
 ```
 
 Полный список — в **[RUNBOOK.md](RUNBOOK.md)**.
+
+### Right-sizing ресурсов (VPA)
+
+В проекте **VPA работает в режиме `Off`** для всех workload'ов. Он собирает статистику использования ресурсов и выдаёт рекомендации, но **никогда не трогает работающие поды**. Это исключает конфликты с HPA (web-tier) и рискованные рестарты stateful-сервисов (Postgres, Prometheus, Loki, Grafana, Jaeger).
+
+Через 24 часа работы VPA показал значительный over-provisioning:
+
+| Workload | Текущий `requests.cpu` | Рекомендация VPA | Экономия |
+|----------|-----------------------|------------------|----------|
+| web | 200m | 126m | −37% |
+| client | 200m | 49m | −75% |
+| server | 100m | 35m | −65% |
+| prometheus | 200m | 100m | −50% |
+| grafana | 100m | 50m | −50% |
+| alertmanager | 50m | 30m | −40% |
+
+Рекомендации применяются вручную через PR в `values.yaml` — так `hpa.targetCPU` остаётся синхронным с `requests`.
+
+Проверка рекомендаций:
+
+```bash
+make vpa
+kubectl describe vpa web-vpa -n opc-monitor
+```
 
 ## 🔐 Безопасность
 
@@ -548,6 +575,7 @@ helm upgrade --install opc-monitor ./helm/opc-monitor \
 | `POSTGRES_PASSWORD` | Пароль PostgreSQL |
 | `ADMIN_PASSWORD` | Пароль admin в web UI |
 | `GRAFANA_PASSWORD` | Пароль Grafana |
+| `CODECOV_TOKEN` | Токен для загрузки покрытия в Codecov |
 
 Настроить: **Settings → Secrets and variables → Actions → New repository secret**.
 
@@ -639,6 +667,7 @@ opc-monitor/
 │   │   └── opc-monitor.json
 │   └── templates/
 │       ├── hpa.yaml             # HorizontalPodAutoscaler для web
+│       ├── vpa.yaml             # VerticalPodAutoscaler для всех workload'ов
 │       └── ...
 ├── k8s/                         # Kubernetes-манифесты (kubectl)
 ├── monitoring/
@@ -740,10 +769,10 @@ terraform destroy   # удалит
 - [ ] **CSP без `'unsafe-inline'` в `style-src`** — вынос inline-стилей в CSS-классы
 - [ ] **OPA/Gatekeeper** — policy-as-code для манифестов (запрет `:latest`, обязательные labels)
 - [ ] **External Secrets Operator** — синхронизация секретов из Vault / Yandex Lockbox
-- [ ] **a11y: связка label ↔ input** — устранить warnings Chrome DevTools (Issues)
+- [x] **a11y: связка label ↔ input** — устранить warnings Chrome DevTools (Issues)
 
 ### Надёжность
-- [ ] **VPA** в режиме `Off` — рекомендации по requests/limits
+- [x] **VPA** в режиме `Off` — рекомендации по requests/limits
 - [ ] **k6 load testing** — 100 RPS baseline + графики в Grafana
 - [ ] **Integration-тесты БД** — покрытие `db.py` на in-memory SQLite
 
@@ -765,6 +794,7 @@ terraform destroy   # удалит
 - **Coverage — не самоцель.** Сначала исключил из подсчёта то, что не предназначено для unit-тестов (`client.py`, `server.py`, `db.py`), потом стал смотреть на цифру. Порог `--cov-fail-under` поставил с запасом — чтобы CI не падал от случайного рефакторинга.
 - **`minikube image load` не перезаписывает образ с тем же тегом.** Один из самых коварных моментов при локальной разработке в Minikube — используем уникальный тег для каждой сборки.
 - **HPA и `replicas` конфликтуют.** HPA пишет в `.spec.replicas`; если Helm на каждом upgrade тоже задаёт `replicas`, поды «дёргаются». Починили условием в чарте: `{{- if not .Values.web.hpa.enabled }}`.
+- **VPA в `Off` режиме — этого достаточно.** Рекомендации полезны и без автоматической мутации: получаешь data-driven right-sizing без риска рестартов подов и без поломки HPA-скейлинга по CPU.
 
 ## 📝 Лицензия
 

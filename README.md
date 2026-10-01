@@ -15,7 +15,7 @@
 
 **🇬🇧 English** | [🇷🇺 Русская версия](docs/README.ru.md)
 
-> **TL;DR** — Real-time monitoring of industrial equipment over OPC UA: 8 parameters, web dashboard with charts and alerts, full observability stack (Prometheus + Grafana + Loki + Jaeger), CI/CD via GitHub Actions with a self-hosted runner, GitOps via ArgoCD. Python + Flask + PostgreSQL + Redis, 9 containers, 41 tests, 68% unit coverage, HPA autoscaling 2–5 replicas in production. Deployment: Docker Compose for a quick demo, Helm + Minikube for the full stack, Terraform for Yandex Cloud.
+> **TL;DR** — Real-time monitoring of industrial equipment over OPC UA: 8 parameters, web dashboard with charts and alerts, full observability stack (Prometheus + Grafana + Loki + Jaeger), CI/CD via GitHub Actions with a self-hosted runner, GitOps via ArgoCD. Python + Flask + PostgreSQL + Redis, 9 containers, 41 tests, 68% unit coverage, HPA autoscaling 2–5 replicas in production, VPA in `Off` mode for right-sizing. Deployment: Docker Compose for a quick demo, Helm + Minikube for the full stack, Terraform for Yandex Cloud.
 
 ## 📋 Table of Contents
 
@@ -67,6 +67,7 @@
 - 🔀 **ArgoCD** — GitOps approach (pull-based deployment)
 - ✅ **41 tests** (29 unit + 12 integration) + Codecov, coverage threshold 63%
 - 📈 **HPA** — CPU-based autoscaling for the web tier (2–5 replicas in production)
+- 📐 **VPA in `Off` mode** — continuous right-sizing recommendations for all workloads
 - 📦 **GHCR** — automatic image publishing
 - 🛡️ **Security Hardened** — strict CSP (no `unsafe-inline` in `script-src`), full audit (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVEs, 0 findings from Bandit / Hadolint / CodeQL
 
@@ -231,6 +232,8 @@ make deploy-local    # helm upgrade --install into the current kube-context
 make rollback        # helm rollback
 make status          # kubectl get pods -n opc-monitor
 make logs            # tail web pod logs
+make hpa             # HPA status + web deployment
+make vpa             # VPA recommendations
 make destroy         # helm uninstall
 ```
 
@@ -432,11 +435,37 @@ On-call instructions: alert diagnosis, common operations, failure recovery — i
 ```bash
 make status                                        # kubectl get pods -n opc-monitor
 make logs                                          # web pod logs
+make hpa                                           # HPA status
+make vpa                                           # VPA recommendations
 make rollback                                      # helm rollback
 kubectl rollout restart deployment/web -n opc-monitor
 ```
 
 Full list — in **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.
+
+### Resource Right-Sizing (VPA)
+
+The project runs **VPA in `Off` mode** for all workloads. It collects resource usage and produces recommendations, but never mutates running pods. This avoids conflicts with HPA (web tier) and risky restarts of stateful services (Postgres, Prometheus, Loki, Grafana, Jaeger).
+
+After 24 hours of operation, VPA recommendations showed significant over-provisioning:
+
+| Workload | Current `requests.cpu` | VPA recommends | Saving |
+|----------|-----------------------|----------------|--------|
+| web | 200m | 126m | −37% |
+| client | 200m | 49m | −75% |
+| server | 100m | 35m | −65% |
+| prometheus | 200m | 100m | −50% |
+| grafana | 100m | 50m | −50% |
+| alertmanager | 50m | 30m | −40% |
+
+Recommendations are applied manually via PRs to `values.yaml`, so `hpa.targetCPU` stays in sync with `requests`.
+
+Check recommendations:
+
+```bash
+make vpa
+kubectl describe vpa web-vpa -n opc-monitor
+```
 
 ## 🔐 Security
 
@@ -546,6 +575,7 @@ Secrets are stored in **GitHub Secrets** and injected into `cd.yml`:
 | `POSTGRES_PASSWORD` | PostgreSQL password |
 | `ADMIN_PASSWORD` | Admin password for the web UI |
 | `GRAFANA_PASSWORD` | Grafana password |
+| `CODECOV_TOKEN` | Codecov upload token |
 
 Configure: **Settings → Secrets and variables → Actions → New repository secret**.
 
@@ -637,6 +667,7 @@ opc-monitor/
 │   │   └── opc-monitor.json
 │   └── templates/
 │       ├── hpa.yaml             # HorizontalPodAutoscaler for web
+│       ├── vpa.yaml             # VerticalPodAutoscaler for all workloads
 │       └── ...
 ├── k8s/                         # Kubernetes manifests (kubectl)
 ├── monitoring/
@@ -738,10 +769,10 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 - [ ] **CSP without `'unsafe-inline'` in `style-src`** — move inline styles into CSS classes
 - [ ] **OPA / Gatekeeper** — policy-as-code for manifests (ban `:latest`, require labels)
 - [ ] **External Secrets Operator** — sync secrets from Vault / Yandex Lockbox
-- [ ] **a11y: label ↔ input association** — eliminate Chrome DevTools warnings
+- [x] **a11y: label ↔ input association** — eliminate Chrome DevTools warnings
 
 ### Reliability
-- [ ] **VPA in `Off` mode** — requests/limits recommendations
+- [x] **VPA in `Off` mode** — requests/limits recommendations
 - [ ] **k6 load testing** — 100 RPS baseline + Grafana dashboards
 - [ ] **DB integration tests** — cover `db.py` with in-memory SQLite
 
@@ -763,6 +794,7 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 - **Coverage is not a goal in itself.** I first excluded code not intended for unit tests (`client.py`, `server.py`, `db.py`), then looked at the number. The `--cov-fail-under` threshold is set with a buffer — so CI doesn't fail on an incidental refactor.
 - **`minikube image load` does not overwrite an image with the same tag.** One of the trickiest gotchas of local development in Minikube — use a unique tag per build.
 - **HPA and `replicas` conflict.** HPA writes into `.spec.replicas`; if Helm also sets `replicas` on each upgrade, pods flap. Fixed with a conditional in the chart: `{{- if not .Values.web.hpa.enabled }}`.
+- **VPA `Off` mode is enough.** Recommendations are useful even without automatic mutation — you get a data-driven right-sizing signal without risking pod restarts or breaking HPA's CPU-based scaling.
 
 ## 📝 License
 
