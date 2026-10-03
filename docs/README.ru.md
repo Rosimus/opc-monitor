@@ -15,7 +15,7 @@
 
 **🇬🇧 [English version](../README.md)** | 🇷🇺 Русская версия
 
-> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 41 тест, 68% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде, VPA в режиме `Off` для right-sizing. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
+> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 41 тест, 68% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде, VPA в режиме `Off` для right-sizing, k6 load-tested при 256 RPS с p95 = 4 ms. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
 
 ## 📋 Содержание
 
@@ -68,6 +68,7 @@
 - ✅ **41 тест** (29 unit + 12 integration) + Codecov, порог покрытия 63%
 - 📈 **HPA** — CPU-автоскейлинг web-подов (2–5 реплик в проде)
 - 📐 **VPA в режиме `Off`** — рекомендации по right-sizing для всех workload'ов
+- ⚡ **k6 load tested** — 256 RPS sustained, p95 = 4 ms, HPA отскейлил 2 → 4
 - 📦 **GHCR** — автоматическая загрузка образов
 - 🛡️ **Security Hardened** — строгий CSP (без `unsafe-inline` в `script-src`), полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint/CodeQL
 
@@ -131,6 +132,7 @@
 | **Metrics** | Prometheus, Alertmanager, Grafana |
 | **Logs** | Loki, Promtail |
 | **Traces** | OpenTelemetry SDK, Jaeger |
+| **Load Testing** | k6 (Grafana) |
 | **IaC** | Terraform (Yandex Cloud) |
 | **Тесты** | pytest, pytest-cov, pytest-mock |
 | **DevEx** | Makefile для типовых операций |
@@ -173,6 +175,12 @@
 
 *GitHub Actions: тесты → сборка → Trivy scan → деплой через Helm*
 
+### ⚡ k6 нагрузочное тестирование
+
+![k6 нагрузочный тест](screenshots/k6-console.png)
+
+*Вывод k6: все пороги зелёные, p95 = 4 ms, 0% ошибок при ~256 RPS*
+
 ## 🚀 Быстрый старт
 
 ### Предварительные требования
@@ -181,6 +189,7 @@
 - **Minikube** 1.30+ (для k8s-развёртывания)
 - **kubectl** 1.27+
 - **Helm** 3.12+
+- **k6** 0.49+ (опционально, для нагрузочного тестирования)
 - **make** (опционально, для `make test` и т.п.)
 
 ### Три способа запуска
@@ -467,6 +476,37 @@ make vpa
 kubectl describe vpa web-vpa -n opc-monitor
 ```
 
+### Нагрузочное тестирование
+
+Нагрузочный тест проведён с помощью **k6** при стабильных ~256 RPS.
+
+**Профиль теста:** ramp-up 30s → 100 iters/s на 2 минуты → ramp-down 30s. Четыре эндпоинта: `/health`, `/api/latest`, `/api/history`, `/metrics`.
+
+**Результат после оптимизации:**
+
+| Метрика | До | После |
+|---------|-----|-------|
+| p95 latency | 700 ms | **4.0 ms** |
+| p99 latency | 880 ms | 5.8 ms |
+| Error rate | 0.00% | 0.00% |
+| Пропускная способность | 250 RPS | 256 RPS |
+| Реплик HPA | 2 | **4** |
+
+**Изначальная конфигурация** (2 Gunicorn-воркера, лимит 500m CPU) упиралась в p95 = 700 ms. После увеличения до **4 воркеров** и **1000m CPU** p95 упал **в 175 раз**, а HPA отскейлил web-tier с 2 до 4 реплик.
+
+![k6 нагрузочный тест](screenshots/k6-console.png)
+
+Скрипт теста: [`tests/load/k6-test.js`](../../tests/load/k6-test.js).
+
+Локальный запуск:
+
+```bash
+kubectl port-forward -n opc-monitor service/web 5000:5000
+k6 run tests/load/k6-test.js
+```
+
+Rate-лимиты настраиваются через env-переменную `RATELIMIT_DEFAULT` (по умолчанию `1000 per hour, 200 per minute`). Для нагрузочного теста переопределить через `--set web.ratelimitDefault="100000 per minute"`.
+
 ## 🔐 Безопасность
 
 Полный отчёт аудита и список принятых рисков — в **[SECURITY.md](../SECURITY.md)**.
@@ -475,7 +515,7 @@ kubectl describe vpa web-vpa -n opc-monitor
 
 - ✅ **JWT-аутентификация** — flask-jwt-extended, HS256, access-token 60 мин
 - ✅ **Timing-safe сравнение паролей** — `secrets.compare_digest`
-- ✅ **Rate limiting** — Redis-based, `/health` и `/metrics` исключены из лимитов
+- ✅ **Rate limiting** — Redis-based, `/health` и `/metrics` исключены из лимитов, настраивается через `RATELIMIT_DEFAULT`
 - ✅ **Security Headers** — Flask-Talisman (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, COOP, COEP, Permissions-Policy)
 - ✅ **Строгий CSP** — `script-src 'self'` без `'unsafe-inline'`. Все inline-обработчики (`onclick=`) заменены на `data-action` + event delegation в `static/js/app.js`. `style-src` оставляет `'unsafe-inline'` — Chart.js и JS применяют inline-стили динамически; риск XSS через style-src существенно ниже.
 - ✅ **Локальные библиотеки** — Chart.js, XLSX, jwt-decode вынесены из CDN в `static/js/`
@@ -688,7 +728,9 @@ opc-monitor/
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_utils.py
-│   └── test_api.py
+│   ├── test_api.py
+│   └── load/
+│       └── k6-test.js           # k6 load test (256 RPS, p95 = 4 ms)
 ├── static/js/                   # локальные библиотеки (были в CDN)
 │   ├── app.js                   # + event delegation для CSP
 │   ├── chart.umd.min.js
@@ -777,7 +819,7 @@ terraform destroy   # удалит
 
 ### Надёжность
 - [x] **VPA** в режиме `Off` — рекомендации по requests/limits
-- [ ] **k6 load testing** — 100 RPS baseline + графики в Grafana
+- [x] **k6 load testing** — 256 RPS, p95 = 4 ms, HPA отскейлил 2→4
 - [ ] **Integration-тесты БД** — покрытие `db.py` на in-memory SQLite
 
 ### DevOps
@@ -799,6 +841,7 @@ terraform destroy   # удалит
 - **`minikube image load` не перезаписывает образ с тем же тегом.** Один из самых коварных моментов при локальной разработке в Minikube — используем уникальный тег для каждой сборки.
 - **HPA и `replicas` конфликтуют.** HPA пишет в `.spec.replicas`; если Helm на каждом upgrade тоже задаёт `replicas`, поды «дёргаются». Починили условием в чарте: `{{- if not .Values.web.hpa.enabled }}`.
 - **VPA в `Off` режиме — этого достаточно.** Рекомендации полезны и без автоматической мутации: получаешь data-driven right-sizing без риска рестартов подов и без поломки HPA-скейлинга по CPU.
+- **Нагрузочное тестирование вскрывает недостатки тюнинга.** Изначальная конфигурация web (2 Gunicorn-воркера, 500m CPU) упиралась в p95 = 700 ms при 250 RPS. После перехода на 4 воркера + 1000m CPU p95 упал до **4 ms** — улучшение в 175 раз — и HPA отскейлил tier с 2 до 4 реплик.
 
 ## 📝 Лицензия
 

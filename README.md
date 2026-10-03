@@ -15,7 +15,7 @@
 
 **🇬🇧 English** | [🇷🇺 Русская версия](docs/README.ru.md)
 
-> **TL;DR** — Real-time monitoring of industrial equipment over OPC UA: 8 parameters, web dashboard with charts and alerts, full observability stack (Prometheus + Grafana + Loki + Jaeger), CI/CD via GitHub Actions with a self-hosted runner, GitOps via ArgoCD. Python + Flask + PostgreSQL + Redis, 9 containers, 41 tests, 68% unit coverage, HPA autoscaling 2–5 replicas in production, VPA in `Off` mode for right-sizing. Deployment: Docker Compose for a quick demo, Helm + Minikube for the full stack, Terraform for Yandex Cloud.
+> **TL;DR** — Real-time monitoring of industrial equipment over OPC UA: 8 parameters, web dashboard with charts and alerts, full observability stack (Prometheus + Grafana + Loki + Jaeger), CI/CD via GitHub Actions with a self-hosted runner, GitOps via ArgoCD. Python + Flask + PostgreSQL + Redis, 9 containers, 41 tests, 68% unit coverage, HPA autoscaling 2–5 replicas in production, VPA in `Off` mode for right-sizing, k6 load-tested at 256 RPS with p95 = 4 ms. Deployment: Docker Compose for a quick demo, Helm + Minikube for the full stack, Terraform for Yandex Cloud.
 
 ## 📋 Table of Contents
 
@@ -68,6 +68,7 @@
 - ✅ **41 tests** (29 unit + 12 integration) + Codecov, coverage threshold 63%
 - 📈 **HPA** — CPU-based autoscaling for the web tier (2–5 replicas in production)
 - 📐 **VPA in `Off` mode** — continuous right-sizing recommendations for all workloads
+- ⚡ **k6 load tested** — 256 RPS sustained, p95 = 4 ms, HPA scaled 2 → 4
 - 📦 **GHCR** — automatic image publishing
 - 🛡️ **Security Hardened** — strict CSP (no `unsafe-inline` in `script-src`), full audit (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVEs, 0 findings from Bandit / Hadolint / CodeQL
 
@@ -131,6 +132,7 @@ The project is a **distributed system of 9 containers** connected by a shared ne
 | **Metrics** | Prometheus, Alertmanager, Grafana |
 | **Logs** | Loki, Promtail |
 | **Traces** | OpenTelemetry SDK, Jaeger |
+| **Load Testing** | k6 (Grafana) |
 | **IaC** | Terraform (Yandex Cloud) |
 | **Testing** | pytest, pytest-cov, pytest-mock |
 | **DevEx** | Makefile for common operations |
@@ -173,6 +175,12 @@ The project is a **distributed system of 9 containers** connected by a shared ne
 
 *GitHub Actions: tests → build → Trivy scan → Helm deploy*
 
+### ⚡ k6 Load Test
+
+![k6 load test](docs/screenshots/k6-console.png)
+
+*k6 output: all thresholds green, p95 = 4 ms, 0% error rate at ~256 RPS*
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -181,6 +189,7 @@ The project is a **distributed system of 9 containers** connected by a shared ne
 - **Minikube** 1.30+ (for k8s deployment)
 - **kubectl** 1.27+
 - **Helm** 3.12+
+- **k6** 0.49+ (optional, for load testing)
 - **make** (optional, for `make test`, etc.)
 
 ### Three deployment options
@@ -467,6 +476,37 @@ make vpa
 kubectl describe vpa web-vpa -n opc-monitor
 ```
 
+### Load Testing
+
+Load tested with **k6** at sustained ~256 RPS.
+
+**Test profile:** ramp-up 30s → 100 iters/s for 2m → ramp-down 30s. Four endpoints: `/health`, `/api/latest`, `/api/history`, `/metrics`.
+
+**Result after resource tuning:**
+
+| Metric | Before | After |
+|--------|--------|-------|
+| p95 latency | 700 ms | **4.0 ms** |
+| p99 latency | 880 ms | 5.8 ms |
+| Error rate | 0.00% | 0.00% |
+| Throughput | 250 RPS | 256 RPS |
+| HPA replicas | 2 | **4** |
+
+**Initial config** (2 Gunicorn workers, 500m CPU limit) saturated at p95 = 700 ms. After bumping to **4 workers** and **1000m CPU**, p95 dropped **175×** and HPA scaled the web tier from 2 to 4 replicas.
+
+![k6 load test](docs/screenshots/k6-console.png)
+
+Test script: [`tests/load/k6-test.js`](tests/load/k6-test.js).
+
+Run locally:
+
+```bash
+kubectl port-forward -n opc-monitor service/web 5000:5000
+k6 run tests/load/k6-test.js
+```
+
+Rate limits are configurable via `RATELIMIT_DEFAULT` env variable (default `1000 per hour, 200 per minute`). For load testing, override with `--set web.ratelimitDefault="100000 per minute"`.
+
 ## 🔐 Security
 
 Full audit report and accepted risks — in **[SECURITY.md](SECURITY.md)** (in Russian).
@@ -475,7 +515,7 @@ Full audit report and accepted risks — in **[SECURITY.md](SECURITY.md)** (in R
 
 - ✅ **JWT authentication** — flask-jwt-extended, HS256, access token 60 min
 - ✅ **Timing-safe password comparison** — `secrets.compare_digest`
-- ✅ **Rate limiting** — Redis-based, `/health` and `/metrics` excluded from limits
+- ✅ **Rate limiting** — Redis-based, `/health` and `/metrics` excluded from limits, configurable via `RATELIMIT_DEFAULT`
 - ✅ **Security headers** — Flask-Talisman (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, COOP, COEP, Permissions-Policy)
 - ✅ **Strict CSP** — `script-src 'self'` without `'unsafe-inline'`. All inline handlers (`onclick=`) replaced with `data-action` + event delegation in `static/js/app.js`. `style-src` keeps `'unsafe-inline'` — Chart.js and JS apply inline styles dynamically; the XSS risk via style-src is substantially lower.
 - ✅ **Local libraries** — Chart.js, XLSX, jwt-decode moved from CDN to `static/js/`
@@ -688,7 +728,9 @@ opc-monitor/
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_utils.py
-│   └── test_api.py
+│   ├── test_api.py
+│   └── load/
+│       └── k6-test.js           # k6 load test (256 RPS, p95 = 4 ms)
 ├── static/js/                   # local libraries (previously from CDN)
 │   ├── app.js                   # + event delegation for strict CSP
 │   ├── chart.umd.min.js
@@ -775,7 +817,7 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 
 ### Reliability
 - [x] **VPA in `Off` mode** — requests/limits recommendations
-- [ ] **k6 load testing** — 100 RPS baseline + Grafana dashboards
+- [x] **k6 load testing** — 256 RPS, p95 = 4 ms, HPA scaled 2→4
 - [ ] **DB integration tests** — cover `db.py` with in-memory SQLite
 
 ### DevOps
@@ -797,6 +839,7 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 - **`minikube image load` does not overwrite an image with the same tag.** One of the trickiest gotchas of local development in Minikube — use a unique tag per build.
 - **HPA and `replicas` conflict.** HPA writes into `.spec.replicas`; if Helm also sets `replicas` on each upgrade, pods flap. Fixed with a conditional in the chart: `{{- if not .Values.web.hpa.enabled }}`.
 - **VPA `Off` mode is enough.** Recommendations are useful even without automatic mutation — you get a data-driven right-sizing signal without risking pod restarts or breaking HPA's CPU-based scaling.
+- **Load testing exposes tuning gaps.** Our initial web config (2 Gunicorn workers, 500m CPU) saturated at p95 = 700 ms under 250 RPS. Bumping to 4 workers + 1000m CPU reduced p95 to **4 ms** — a 175× improvement — and let HPA scale the tier from 2 to 4 replicas.
 
 ## 📝 License
 
