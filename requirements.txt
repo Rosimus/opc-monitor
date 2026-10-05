@@ -39,5 +39,5 @@ opentelemetry-instrumentation-threading==0.65b0 # добавлено (было �
 
 # === Testing ===
 pytest==8.0.0                                   # CVE PYSEC-2026-1845, но 8→9 major
-pytest-cov==4.1.0
+pytest-cov==7.1.0
 pytest-mock==3.12.0
