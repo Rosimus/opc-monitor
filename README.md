@@ -850,7 +850,7 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 ### Reliability
 - [x] **VPA in `Off` mode** — requests/limits recommendations
 - [x] **k6 load testing** — 256 RPS, p95 = 4 ms, HPA scaled 2→4
-- [x  **DB integration tests** — cover `db.py` with in-memory SQLite
+- [x] **DB integration tests** — cover `db.py` with in-memory SQLite
 
 ### DevOps
 - [ ] **Multi-cluster ArgoCD** via ApplicationSet — staging + prod in one UI
