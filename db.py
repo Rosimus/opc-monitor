@@ -94,10 +94,12 @@ class Database:
         self.params_config = params_config or []
         self.param_ids = [p['id'] for p in self.params_config]
 
-        # PostgreSQL
-        # Приоритет: DATABASE_URL → сборка из отдельных env-переменных.
-        # Дефолтных паролей нет — если POSTGRES_PASSWORD не задан, падаем.
-        self.db_url = os.environ.get('DATABASE_URL')
+        # Явно указываем драйвер psycopg2 (библиотека уже в requirements.txt).
+        # SQLAlchemy 2.0.30+ для URL "postgresql://" без драйвера выбирает psycopg3,
+        # которого нет в образе → ModuleNotFoundError: No module named 'psycopg'.
+        self.db_url = os.environ.get('DATABASE_URL', '').replace(
+            'postgresql://', 'postgresql+psycopg2://'
+        )
         if not self.db_url:
             password = os.environ.get('POSTGRES_PASSWORD')
             if not password:
@@ -106,7 +108,7 @@ class Database:
                     "Установите POSTGRES_PASSWORD (или DATABASE_URL)."
                 )
             self.db_url = (
-                f"postgresql://{os.getenv('POSTGRES_USER', 'opc_user')}:{password}@"
+                f"postgresql+psycopg2://{os.getenv('POSTGRES_USER', 'opc_user')}:{password}@"
                 f"{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/"
                 f"{os.getenv('POSTGRES_DB', 'opc_monitor')}"
             )
