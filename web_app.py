@@ -134,10 +134,16 @@ Talisman(
 # ============================================
 _limiter_storage = os.environ.get('REDIS_URL') or os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
 
+# Лимиты вынесены в env (RATELIMIT_DEFAULT) — чтобы можно было переопределить
+# для load-тестов без изменения кода. Формат: "N per unit, M per unit".
+# Пример: "100000 per minute" для k6-нагрузки.
+_default_limits_str = os.environ.get('RATELIMIT_DEFAULT', '1000 per hour, 200 per minute')
+_default_limits = [x.strip() for x in _default_limits_str.split(',') if x.strip()]
+
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["1000 per hour", "200 per minute"],
+    default_limits=_default_limits,
     storage_uri=_limiter_storage,
     strategy="fixed-window",
     default_limits_exempt_when=lambda: request.endpoint in ('health', 'metrics'),

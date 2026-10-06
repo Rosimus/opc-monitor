@@ -77,7 +77,7 @@ spec:
         - name: web
           image: {{ include "opc-monitor.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["gunicorn", "-k", "gthread", "-w", "2", "web_app:app", "-b", "0.0.0.0:5000", "--no-control"]
+          command: ["gunicorn", "-k", "gthread", "-w", "4", "web_app:app", "-b", "0.0.0.0:5000", "--no-control"]
           securityContext:
             allowPrivilegeEscalation: false
             privileged: false
@@ -137,6 +137,8 @@ spec:
               value: "6379"
             - name: REDIS_URL
               value: "redis://redis:6379"
+            - name: RATELIMIT_DEFAULT
+              value: {{ .Values.web.ratelimitDefault | default "1000 per hour, 200 per minute" | quote }} 
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://jaeger:4317"
             - name: OTEL_SERVICE_NAME

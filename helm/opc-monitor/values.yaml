@@ -17,8 +17,8 @@ web:
       cpu: "200m"
     limits:
       ephemeral-storage: "500Mi"
-      memory: "512Mi"
-      cpu: "500m"
+      memory: "768Mi"
+      cpu: "1000m"
   service:
     type: ClusterIP
     port: 5000
