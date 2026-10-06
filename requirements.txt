@@ -13,7 +13,7 @@ opcua==0.98.13                                  # без фикса PYSEC-2026-8
 
 # === Database ===
 psycopg2-binary==2.9.9
-SQLAlchemy==2.0.54
+SQLAlchemy==2.1.1
 alembic==1.12.1
 redis==5.0.1
 
