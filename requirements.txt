@@ -28,7 +28,7 @@ gunicorn==26.2.0
 eventlet==0.41.2                                # было 0.33.3, CVE PYSEC-2026-1307/1350/2472
 
 # === Observability ===
-prometheus-client==0.19.0
+prometheus-client==0.26.0
 opentelemetry-api==1.44.0                       # было 1.24.0
 opentelemetry-sdk==1.44.0                       # было 1.24.0
 opentelemetry-exporter-otlp-proto-grpc==1.44.0  # было 1.24.0
