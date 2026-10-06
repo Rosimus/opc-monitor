@@ -9,13 +9,13 @@
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/helm-3.12+-0F1689)](https://helm.sh/)
 [![ArgoCD](https://img.shields.io/badge/argocd-GitOps-orange)](https://argo-cd.readthedocs.io/)
-[![Tests](https://img.shields.io/badge/tests-41%20passed-brightgreen)](#-тестирование)
+[![Tests](https://img.shields.io/badge/tests-78%20passed-brightgreen)](#-тестирование)
 [![Security](https://img.shields.io/badge/security-audited-brightgreen)](../SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **🇬🇧 [English version](../README.md)** | 🇷🇺 Русская версия
 
-> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 41 тест, 68% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде, VPA в режиме `Off` для right-sizing, k6 load-tested при 256 RPS с p95 = 4 ms. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
+> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 78 тестов, 75% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде, VPA в режиме `Off` для right-sizing, k6 load-tested при 256 RPS с p95 = 4 ms. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
 
 ## 📋 Содержание
 
@@ -65,7 +65,7 @@
 - 🌩️ **Terraform** — IaC для Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
 - 🔀 **ArgoCD** — GitOps-подход (pull-модель деплоя)
-- ✅ **41 тест** (29 unit + 12 integration) + Codecov, порог покрытия 63%
+- ✅ **78 тестов** (29 unit + 12 integration API + 37 integration DB) + Codecov, порог покрытия 70%
 - 📈 **HPA** — CPU-автоскейлинг web-подов (2–5 реплик в проде)
 - 📐 **VPA в режиме `Off`** — рекомендации по right-sizing для всех workload'ов
 - ⚡ **k6 load tested** — 256 RPS sustained, p95 = 4 ms, HPA отскейлил 2 → 4
@@ -647,7 +647,7 @@ make test                    # pytest + coverage + порог 63%
 make test-fast               # без coverage, быстрее
 ```
 
-**41 тест** покрывают:
+**78 тест** покрывают:
 
 ### Unit-тесты (`tests/test_utils.py`)
 - `get_param_status` — двусторонний и односторонний контроль, edge cases
@@ -662,13 +662,24 @@ make test-fast               # без coverage, быстрее
 - Metrics (`/metrics`)
 - Root (`/`)
 
+### Integration-тесты — БД (`tests/test_db.py`)
+- CRUD измерений, расчёт статусов по порогам
+- Фильтрация истории и аварий по датам и статусу
+- Агрегация статистики (min/max/avg по каждому параметру)
+- Политика retention (`delete_old_records`)
+- Пороги: снапшоты, дедупликация, overrides с audit-логом
+- Сохранение состояния приложения (`last_status`)
+- Подтверждение аварий (acknowledgements)
+- Экспорт в CSV с выбором полей
+
+Используется **in-memory SQLite** через SQLAlchemy `StaticPool` — без Docker, без реальной БД. Тесты выполняются за <2 секунды.
+
 ### Покрытие
 
-**~68%** (branch coverage, только код, предназначенный для unit-тестов).
+**~75%** (branch coverage, только код, предназначенный для unit-тестов).
 
 Из подсчёта **исключены**:
 - `client.py`, `server.py` — отдельные сервисы, тестируются интеграционно
-- `db.py` — SQLAlchemy-слой, требует реальной БД
 - `tracing.py` — инициализация OTel с побочными эффектами
 - `*/tests/*`, `*/__pycache__/*`, `conftest.py`
 
@@ -820,7 +831,7 @@ terraform destroy   # удалит
 ### Надёжность
 - [x] **VPA** в режиме `Off` — рекомендации по requests/limits
 - [x] **k6 load testing** — 256 RPS, p95 = 4 ms, HPA отскейлил 2→4
-- [ ] **Integration-тесты БД** — покрытие `db.py` на in-memory SQLite
+- [x] **Integration-тесты БД** — покрытие `db.py` на in-memory SQLite
 
 ### DevOps
 - [ ] **Multi-cluster ArgoCD** через ApplicationSet — staging + prod в одном UI

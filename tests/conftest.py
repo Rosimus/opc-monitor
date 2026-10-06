@@ -1,8 +1,11 @@
 """
-Pytest-фикстуры для тестирования API.
+Pytest-фикстуры для тестирования API и базы данных.
 
 Мокают Database и load_config ДО импорта web_app, чтобы не требовать
 реальных PostgreSQL, Redis и config.yaml при запуске тестов.
+
+Для тестов db.py используется отдельная фикстура db_instance,
+которая поднимает in-memory SQLite с реальным классом Database.
 """
 import os
 from unittest.mock import MagicMock
@@ -67,6 +70,10 @@ utils.load_config = lambda: MOCK_CONFIG
 # ============================================================
 import db
 
+# Сохраняем ссылку на РЕАЛЬНЫЙ класс до подмены,
+# чтобы фикстура db_instance могла создать его экземпляр.
+REAL_DATABASE_CLASS = db.Database
+
 mock_db_instance = MagicMock()
 mock_db_instance.get_thresholds_overrides.return_value = {}
 mock_db_instance.get_latest.return_value = {
@@ -121,3 +128,58 @@ def auth_headers(app_client):
         pytest.skip("Не удалось получить токен")
     token = response.get_json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def db_instance():
+    """
+    Реальный Database-инстанс на in-memory SQLite (без Redis).
+
+    Минует __init__, потому что там:
+      - требуется POSTGRES_PASSWORD (не нужен для SQLite)
+      - pool_size/max_overflow несовместимы с SQLite
+
+    StaticPool держит одно соединение → :memory: переиспользуется
+    между сессиями внутри одного теста.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    instance = REAL_DATABASE_CLASS.__new__(REAL_DATABASE_CLASS)
+    instance.params_config = MOCK_CONFIG["opc"]["params"]
+    instance.param_ids = [p["id"] for p in instance.params_config]
+    instance.cache_ttl = 30
+    instance.redis_client = None  # кэш отключён
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    db.Base.metadata.create_all(engine)
+    instance.engine = engine
+    instance.SessionLocal = sessionmaker(bind=engine)
+
+    yield instance
+
+    engine.dispose()
+
+
+@pytest.fixture
+def sample_thresholds():
+    """Пороги в формате, который ожидает Database."""
+    return {
+        "temperature": {
+            "warning_low": 20.0,
+            "alarm_low": 16.0,
+            "warning_high": 29.0,
+            "alarm_high": 33.0,
+        },
+        "pressure": {
+            "warning_low": 90.0,
+            "alarm_low": 85.0,
+            "warning_high": 112.0,
+            "alarm_high": 118.0,
+        },
+    }

@@ -9,13 +9,13 @@
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/helm-3.12+-0F1689)](https://helm.sh/)
 [![ArgoCD](https://img.shields.io/badge/argocd-GitOps-orange)](https://argo-cd.readthedocs.io/)
-[![Tests](https://img.shields.io/badge/tests-41%20passed-brightgreen)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-78%20passed-brightgreen)](#-testing)
 [![Security](https://img.shields.io/badge/security-audited-brightgreen)](SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **🇬🇧 English** | [🇷🇺 Русская версия](docs/README.ru.md)
 
-> **TL;DR** — Real-time monitoring of industrial equipment over OPC UA: 8 parameters, web dashboard with charts and alerts, full observability stack (Prometheus + Grafana + Loki + Jaeger), CI/CD via GitHub Actions with a self-hosted runner, GitOps via ArgoCD. Python + Flask + PostgreSQL + Redis, 9 containers, 41 tests, 68% unit coverage, HPA autoscaling 2–5 replicas in production, VPA in `Off` mode for right-sizing, k6 load-tested at 256 RPS with p95 = 4 ms. Deployment: Docker Compose for a quick demo, Helm + Minikube for the full stack, Terraform for Yandex Cloud.
+> **TL;DR** — Real-time monitoring of industrial equipment over OPC UA: 8 parameters, web dashboard with charts and alerts, full observability stack (Prometheus + Grafana + Loki + Jaeger), CI/CD via GitHub Actions with a self-hosted runner, GitOps via ArgoCD. Python + Flask + PostgreSQL + Redis, 9 containers, 78 tests, 75% unit coverage, HPA autoscaling 2–5 replicas in production, VPA in `Off` mode for right-sizing, k6 load-tested at 256 RPS with p95 = 4 ms. Deployment: Docker Compose for a quick demo, Helm + Minikube for the full stack, Terraform for Yandex Cloud.
 
 ## 📋 Table of Contents
 
@@ -65,7 +65,7 @@
 - 🌩️ **Terraform** — IaC for Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** via GitHub Actions with a self-hosted runner
 - 🔀 **ArgoCD** — GitOps approach (pull-based deployment)
-- ✅ **41 tests** (29 unit + 12 integration) + Codecov, coverage threshold 63%
+- ✅ **78 tests** (29 unit + 12 integration API + 37 integration DB) + Codecov, coverage threshold 70%
 - 📈 **HPA** — CPU-based autoscaling for the web tier (2–5 replicas in production)
 - 📐 **VPA in `Off` mode** — continuous right-sizing recommendations for all workloads
 - ⚡ **k6 load tested** — 256 RPS sustained, p95 = 4 ms, HPA scaled 2 → 4
@@ -643,11 +643,11 @@ Via `.env` (see `.env.example`) for Docker Compose.
 ## 🧪 Testing
 
 ```bash
-make test                    # pytest + coverage + threshold 63%
+make test                    # pytest + coverage + threshold 70%
 make test-fast               # no coverage, faster
 ```
 
-**41 tests** cover:
+**78 tests** cover:
 
 ### Unit tests (`tests/test_utils.py`)
 - `get_param_status` — two-sided and one-sided thresholds, edge cases
@@ -662,17 +662,28 @@ make test-fast               # no coverage, faster
 - Metrics (`/metrics`)
 - Root (`/`)
 
+### Integration tests — Database (tests/test_db.py)
+- Measurements CRUD, threshold status calculation
+- History and alarms filtering by date and status
+- Statistics aggregation (min/max/avg per parameter)
+- Retention policy (delete_old_records)
+- Thresholds: snapshots, deduplication, overrides with audit log
+- App state persistence (last_status)
+- Alarm acknowledgements
+- CSV export with custom field selection
+
+Uses in-memory SQLite via SQLAlchemy StaticPool — no Docker, no real DB. Tests run in <2 seconds.
+
 ### Coverage
 
-**~68%** (branch coverage, only code intended for unit tests).
+**~75%** (branch coverage, only code intended for unit tests).
 
 **Excluded** from coverage:
 - `client.py`, `server.py` — standalone services, tested integratively
-- `db.py` — SQLAlchemy layer, requires a real DB
 - `tracing.py` — OTel initialization with side effects
 - `*/tests/*`, `*/__pycache__/*`, `conftest.py`
 
-Config in `.coveragerc`. The CI threshold is `--cov-fail-under=63` (a 5-pp buffer from actual).
+Config in `.coveragerc`. The CI threshold is `--cov-fail-under=70` (a 5-pp buffer from actual).
 
 Coverage badge — [Codecov](https://codecov.io/gh/Rosimus/opc-monitor).
 
@@ -818,7 +829,7 @@ Key technical decisions are documented as ADRs — short notes with context, dec
 ### Reliability
 - [x] **VPA in `Off` mode** — requests/limits recommendations
 - [x] **k6 load testing** — 256 RPS, p95 = 4 ms, HPA scaled 2→4
-- [ ] **DB integration tests** — cover `db.py` with in-memory SQLite
+- [x  **DB integration tests** — cover `db.py` with in-memory SQLite
 
 ### DevOps
 - [ ] **Multi-cluster ArgoCD** via ApplicationSet — staging + prod in one UI
