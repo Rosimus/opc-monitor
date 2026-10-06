@@ -507,6 +507,20 @@ k6 run tests/load/k6-test.js
 
 Rate-лимиты настраиваются через env-переменную `RATELIMIT_DEFAULT` (по умолчанию `1000 per hour, 200 per minute`). Для нагрузочного теста переопределить через `--set web.ratelimitDefault="100000 per minute"`.
 
+**Метрики** из k6 стримятся в Prometheus через **remote-write** и визуализируются в отдельном дашборде Grafana (`OPC Monitor — k6 Load Test`):
+
+![k6 dashboard](screenshots/k6-dashboard.png)
+
+Дашборд содержит 4 панели: RPS, HTTP latency (avg/p95/p99), активные виртуальные пользователи, error rate. Метрики идут по цепочке `k6 → Prometheus (remote-write) → Grafana`.
+
+Remote-write включён в Prometheus через Helm-чарт. Для запуска k6 с отправкой метрик:
+
+```bash
+K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write \
+K6_PROMETHEUS_RW_TREND_STATS="p(95),p(99),min,max,avg" \
+k6 run --out experimental-prometheus-rw tests/load/k6-test.js
+```
+
 ## 🔐 Безопасность
 
 Полный отчёт аудита и список принятых рисков — в **[SECURITY.md](../SECURITY.md)**.

@@ -88,6 +88,8 @@ metadata:
 data:
   opc-monitor.json: |
 {{ .Files.Get "dashboards/opc-monitor.json" | indent 4 }}
+  k6-load.json: |
+{{ .Files.Get "dashboards/k6-load.json" | indent 4 }}
 ---
 # ============================================
 # Service
@@ -175,6 +177,9 @@ spec:
             - name: grafana-dashboard
               mountPath: /etc/grafana/provisioning/dashboards/opc-monitor.json
               subPath: opc-monitor.json
+            - name: grafana-dashboard
+              mountPath: /etc/grafana/provisioning/dashboards/k6-load.json
+              subPath: k6-load.json
           resources:
             requests:
               memory: "128Mi"

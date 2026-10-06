@@ -507,6 +507,27 @@ k6 run tests/load/k6-test.js
 
 Rate limits are configurable via `RATELIMIT_DEFAULT` env variable (default `1000 per hour, 200 per minute`). For load testing, override with `--set web.ratelimitDefault="100000 per minute"`.
 
+**Metrics** from k6 are streamed to Prometheus via **remote-write** and visualized in a dedicated Grafana dashboard (`OPC Monitor — k6 Load Test`):
+
+![k6 dashboard](docs/screenshots/k6-dashboard.png)
+
+The dashboard has 4 panels: requests per second, HTTP latency (avg/p95/p99), virtual users, and error rate. Metrics flow from `k6 → Prometheus (remote-write) → Grafana`.
+
+Enable remote-write on Prometheus (already configured in the Helm chart):
+
+```bash
+helm upgrade opc-monitor ./helm/opc-monitor -n opc-monitor \
+  --set prometheus.remoteWrite.enabled=true
+```
+
+Run with remote-write output:
+
+```bash
+K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write \
+K6_PROMETHEUS_RW_TREND_STATS="p(95),p(99),min,max,avg" \
+k6 run --out experimental-prometheus-rw tests/load/k6-test.js
+```
+
 ## 🔐 Security
 
 Full audit report and accepted risks — in **[SECURITY.md](SECURITY.md)** (in Russian).
