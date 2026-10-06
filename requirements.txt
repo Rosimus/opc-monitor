@@ -19,7 +19,7 @@ redis==5.0.1
 
 # === Utilities ===
 PyYAML==6.0.1
-requests==2.33.0                                # было 2.31.0, CVE PYSEC-2026-1872/1873/2275
+requests==2.34.2                                # было 2.31.0, CVE PYSEC-2026-1872/1873/2275
 python-dotenv==1.2.2                            # было 1.0.0, CVE PYSEC-2026-2270
 structlog==24.1.0
 
