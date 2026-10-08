@@ -9,6 +9,7 @@ import io
 import os
 import secrets
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from utils import load_config
@@ -218,6 +219,28 @@ def load_thresholds() -> Dict[str, Dict[str, Any]]:
 
 
 THRESHOLDS: Dict[str, Dict[str, Any]] = load_thresholds()
+# ============================================
+# Reload порогов по pub/sub (multi-replica safety)
+# ============================================
+
+def _thresholds_listener():
+    """Слушает Redis pub/sub и перезагружает THRESHOLDS при изменении."""
+    if not db.redis_client:
+        logger.info("Redis недоступен — listener порогов не запущен")
+        return
+    try:
+        pubsub = db.redis_client.pubsub()
+        pubsub.subscribe('thresholds:changed')
+        for msg in pubsub.listen():
+            if msg['type'] == 'message':
+                global THRESHOLDS
+                THRESHOLDS = load_thresholds()
+                logger.info("THRESHOLDS reloaded: param=%s", msg['data'])
+    except Exception as e:
+        logger.error("Thresholds listener died: %s", e, exc_info=True)
+
+_thread = threading.Thread(target=_thresholds_listener, daemon=True, name="thresholds-listener")
+_thread.start()
 ALL_FIELDS: List[str] = ['timestamp', 'status'] + param_ids
 
 

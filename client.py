@@ -71,6 +71,9 @@ cycle_count: int = 0
 offline_mode: bool = False
 last_known_values: Dict[str, float] = {}
 running = True
+# shutdown_event — позволяет мгновенно прервать sleep() в основном цикле,
+# не дожидаясь окончания интервала. Устанавливается из signal handler.
+shutdown_event = threading.Event()
 
 
 # --- Функции отправки ---
@@ -149,7 +152,9 @@ def cleanup_worker():
                     logger.info("Old records deleted", count=deleted)
             except Exception as e:
                 logger.error("Cleanup error", error=str(e))
-        time.sleep(3600)
+        # Прерываемый sleep — реагируем на shutdown в пределах ~1 секунды
+        if shutdown_event.wait(timeout=3600):
+            break
 
 
 def ping_opc_server(url: str):
@@ -161,14 +166,18 @@ def ping_opc_server(url: str):
             logger.debug("OPC server available")
         except Exception as e:
             logger.warning("OPC server unavailable", error=str(e))
-        time.sleep(120)
+        if shutdown_event.wait(timeout=120):
+            break
 
 
 def signal_handler(sig, frame):
     global running
     logger.info("Shutting down...")
     running = False
-    sys.exit(0)
+    # НЕ вызываем sys.exit(0): он поднимает SystemExit в произвольной точке
+    # выполнения (в т.ч. внутри транзакции db.insert_measurement) и может
+    # оборвать запись. shutdown_event будит основной цикл и циклы-воркеры.
+    shutdown_event.set()
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -311,7 +320,10 @@ while running:
 
                         last_alert_time = current_time
 
-            time.sleep(5)
+            # Прерываемый sleep: при получении SIGTERM shutdown_event.wait()
+            # вернёт True немедленно, и мы выйдем из цикла без задержки.
+            if shutdown_event.wait(timeout=5):
+                break
 
     except KeyboardInterrupt:
         logger.info("Stopping client")
@@ -324,7 +336,8 @@ while running:
             except Exception as e2:
                 logger.debug("Disconnect failed", error=str(e2))
         logger.info("Reconnecting in 10 seconds...")
-        time.sleep(10)
+        if shutdown_event.wait(timeout=10):
+            break
         continue
     finally:
         if client:

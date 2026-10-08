@@ -1,5 +1,11 @@
 opc:
   url: "opc.tcp://server:4840"
+  # advertise_url — URL, который OPC UA-сервер вернёт клиентам в GetEndpoints.
+  # Должен резолвиться со всех машин, откуда подключаются клиенты.
+  # K8s (внутри кластера): opc.tcp://server:4840
+  # K8s (снаружи через NodePort): opc.tcp://opc-monitor.local:30403
+  # Docker Compose: opc.tcp://server:4840
+  advertise_url: "opc.tcp://server:4840"
   node_plc: "2:PLC"
   params:
     - id: temperature

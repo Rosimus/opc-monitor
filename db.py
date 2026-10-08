@@ -114,9 +114,11 @@ class Database:
             )
         self.engine = create_engine(
             self.db_url,
-            pool_size=10,
-            max_overflow=20,
+            pool_size=5,
+            max_overflow=10,
             pool_pre_ping=True,
+            pool_recycle=1800,    # NEW: рециклинг соединений каждые 30 мин
+            pool_timeout=10, 
             echo=False
         )
         self.SessionLocal = sessionmaker(bind=self.engine)
@@ -500,6 +502,14 @@ class Database:
         self._cache_delete('opc:latest')
         self._cache_delete_pattern('opc:stats:*')
         self._cache_delete_pattern('opc:history:*')
+
+        # NEW: уведомляем остальные реплики web через Redis pub/sub,
+        # чтобы они перезагрузили THRESHOLDS из БД (multi-replica safety).
+        if self.redis_client:
+            try:
+                self.redis_client.publish('thresholds:changed', param_id)
+            except Exception as e:
+                logger.warning(f"Redis publish failed: {e}")
 
     # ---------- Состояние приложения ----------
     def save_last_status(self, status: str, timestamp: str) -> None:

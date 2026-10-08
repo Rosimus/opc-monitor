@@ -77,8 +77,15 @@ class PLCSimulator:
     # Вероятность каскадной аварии (второй параметр одновременно)
     CASCADE_PROBABILITY = 0.3
 
-    def __init__(self, endpoint: str = "opc.tcp://0.0.0.0:4840"):
-        self.endpoint = endpoint
+    def __init__(self, advertise_url: Optional[str] = None):
+        # advertise_url — URL, который OPC UA-сервер вернёт клиентам в ответе
+        # GetEndpoints. Важно: python-opcua самостоятельно слушает 0.0.0.0:4840,
+        # но если в advertise_url подставить 0.0.0.0, клиент с другой машины
+        # попытается подключиться к самому себе. Поэтому bind и advertise
+        # разделены: bind — неявный (0.0.0.0), advertise — снаружи задаётся.
+        self.advertise_url = advertise_url or os.getenv(
+            "OPC_ADVERTISE_URL", "opc.tcp://server:4840"
+        )
         self.server: Optional[Server] = None
         self.variables: Dict[str, object] = {}
         self.alarm_state: Dict[str, int] = {}
@@ -97,7 +104,7 @@ class PLCSimulator:
     def _setup_server(self) -> None:
         """Создаёт OPC UA-сервер и регистрирует переменные."""
         self.server = Server()
-        self.server.set_endpoint(self.endpoint)
+        self.server.set_endpoint(self.advertise_url)
         self.server.set_server_name("PLC Simulator")
 
         idx = self.server.register_namespace("PLC")
@@ -109,7 +116,7 @@ class PLCSimulator:
             var.set_writable(True)
             self.variables[name] = var
 
-        logger.info(f"OPC UA сервер настроен: {self.endpoint}")
+        logger.info(f"OPC UA сервер настроен: advertise={self.advertise_url}")
         logger.info(f"Зарегистрировано параметров: {len(self.variables)}")
 
     def start(self) -> None:
@@ -120,7 +127,7 @@ class PLCSimulator:
             self.running = True
 
             logger.info("=" * 60)
-            logger.info(f"✅ OPC UA сервер запущен на {self.endpoint}")
+            logger.info(f"✅ OPC UA сервер запущен, advertise={self.advertise_url}")
             logger.info(f"📊 Симулируется {len(self.PARAMS)} параметров")
             logger.info("🎬 Режим: random walk + mean reversion + аварии")
             logger.info("=" * 60)
@@ -215,8 +222,8 @@ class PLCSimulator:
 # Точка входа
 # ============================================
 def main() -> int:
-    endpoint = os.getenv("OPC_ENDPOINT", "opc.tcp://0.0.0.0:4840")
-    simulator = PLCSimulator(endpoint=endpoint)
+    advertise_url = os.getenv("OPC_ADVERTISE_URL", "opc.tcp://server:4840")
+    simulator = PLCSimulator(advertise_url=advertise_url)
 
     try:
         simulator.start()
