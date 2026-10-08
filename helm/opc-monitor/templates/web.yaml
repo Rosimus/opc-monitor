@@ -133,17 +133,19 @@ spec:
                   key: POSTGRES_DB
             # Sentinel-режим (K8s). db.py читает REDIS_SENTINEL_HOSTS
             # и использует redis.sentinel.Sentinel вместо single-node.
+            # Spotahome v1.2.4 создаёт sentinel-service как "rfs-<name>"
+            # и не создаёт master-service, пока не задан .spec.redis.service.
+            # В Sentinel-режиме клиент сам получает адрес мастера — master-service
+            # не нужен.
             - name: REDIS_SENTINEL_HOSTS
-              value: "rfr-{{ .Values.redis.failoverName }}-sentinel"
+              value: "rfs-{{ .Values.redis.failoverName }}"
             - name: REDIS_SENTINEL_PORT
               value: "26379"
             - name: REDIS_MASTER_NAME
               value: {{ .Values.redis.failoverName | quote }}
-            # REDIS_URL оставлен для Flask-Limiter (rate limiting);
-            # после failover master меняется, но limiter ходит через
-            # Service rfr-... — оператор сам переключает его на новый master.
+            # Flask-Limiter через limits понимает redis+sentinel://
             - name: REDIS_URL
-              value: "redis://rfr-{{ .Values.redis.failoverName }}:6379"
+              value: "redis+sentinel://rfs-{{ .Values.redis.failoverName }}:26379/{{ .Values.redis.failoverName }}/0"
             - name: RATELIMIT_DEFAULT
               value: {{ .Values.web.ratelimitDefault | default "1000 per hour, 200 per minute" | quote }} 
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

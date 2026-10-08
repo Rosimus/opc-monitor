@@ -93,13 +93,13 @@ spec:
             - name: POSTGRES_PORT
               value: "5432"
             - name: REDIS_SENTINEL_HOSTS
-              value: "rfr-{{ .Values.redis.failoverName }}-sentinel"
+              value: "rfs-{{ .Values.redis.failoverName }}"
             - name: REDIS_SENTINEL_PORT
               value: "26379"
             - name: REDIS_MASTER_NAME
               value: {{ .Values.redis.failoverName | quote }}
             - name: REDIS_URL
-              value: "redis://rfr-{{ .Values.redis.failoverName }}:6379"
+              value: "redis+sentinel://rfs-{{ .Values.redis.failoverName }}:26379/{{ .Values.redis.failoverName }}/0"
             - name: EMAIL_PASSWORD
               valueFrom:
                 secretKeyRef:
