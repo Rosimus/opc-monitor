@@ -98,8 +98,12 @@ spec:
               value: "26379"
             - name: REDIS_MASTER_NAME
               value: {{ .Values.redis.masterName | default "mymaster" | quote }}
+            # Flask-Limiter. ВАЖНО: limits 3.7.0 парсит sentinel-URL
+            # без /db — иначе склеивает "<master>/<db>" в "<master><db>".
+            # client REDIS_URL не использует (ходит через REDIS_SENTINEL_HOSTS),
+            # но синхронизируем значение для консистентности.
             - name: REDIS_URL
-              value: "redis+sentinel://rfs-{{ .Values.redis.failoverName }}:26379/{{ .Values.redis.masterName | default "mymaster" }}/0"
+              value: "redis+sentinel://rfs-{{ .Values.redis.failoverName }}:26379/{{ .Values.redis.masterName | default "mymaster" }}"
             - name: EMAIL_PASSWORD
               valueFrom:
                 secretKeyRef:
