@@ -1,17 +1,389 @@
+{{- if .Values.networkPolicy.enabled }}
+# ============================================================
+# IEC 62443 — микросегментация namespace opc-monitor.
+#
+# Модель: default-deny (Ingress + Egress) + явные allow-правила.
+#
+# Мониторинг-стек (prometheus, grafana, loki, jaeger, alertmanager)
+# имеет разнородные маршруты (scrape, datasource, service discovery),
+# поэтому для них egress ограничен, но с запасом. Для прикладных
+# pod (server, client, web, postgres, redis, promtail) — только
+# строго необходимые направления.
+#
+# ВАЖНО: Minikube с CNI по умолчанию (bridge) НЕ применяет
+# NetworkPolicy. Для реальной проверки: minikube start --cni=calico
+# или установить Calico/Cilium поверх существующего кластера.
+# ============================================================
+
+# -------- 1. Default-deny all --------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: opc-monitor-default-deny-ingress
+  name: default-deny-all
   namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "opc-monitor.labels" . | nindent 4 }}
 spec:
   podSelector: {}
-  policyTypes:
-    - Ingress
+  policyTypes: [Ingress, Egress]
+
+---
+# -------- 2. DNS egress для всех pod --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+
+---
+# -------- 3. OPC UA server --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: server-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: server}
+  policyTypes: [Ingress]
   ingress:
     - from:
-        - podSelector: {}
+        - podSelector:
+            matchLabels: {app: client}
+      ports:
+        - {port: 4840, protocol: TCP}
+    # Health-probe от kubelet (шлётся с IP узла, источника pod нет)
     - ports:
-        - port: 5000
-          protocol: TCP
+        - {port: 4840, protocol: TCP}
+
+---
+# -------- 4. OPC client --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: client-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: client}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: prometheus}
+      ports:
+        - {port: 8001, protocol: TCP}
+    - ports:  # health-probe
+        - {port: 8001, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: client-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: client}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: server}
+      ports:
+        - {port: 4840, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: postgres}
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: redis}
+      ports:
+        - {port: 6379, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: jaeger}
+      ports:
+        - {port: 4317, protocol: TCP}
+    # client дёргает web:5000/api/notify чтобы оповестить UI
+    - to:
+        - podSelector:
+            matchLabels: {app: web}
+      ports:
+        - {port: 5000, protocol: TCP}
+
+---
+# -------- 5. Web (Flask) --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: web}
+  policyTypes: [Ingress]
+  ingress:
+    # UI: любой источник через port-forward / ingress / NodePort
+    - ports:
+        - {port: 5000, protocol: TCP}
+    - from:
+        - podSelector:
+            matchLabels: {app: prometheus}
+      ports:
+        - {port: 8001, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: web}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: postgres}
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: redis}
+      ports:
+        - {port: 6379, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: jaeger}
+      ports:
+        - {port: 4317, protocol: TCP}
+
+---
+# -------- 6. PostgreSQL --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: client}
+        - podSelector:
+            matchLabels: {app: web}
+      ports:
+        - {port: 5432, protocol: TCP}
+
+---
+# -------- 7. Redis --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: redis}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: client}
+        - podSelector:
+            matchLabels: {app: web}
+      ports:
+        - {port: 6379, protocol: TCP}
+
+---
+# -------- 8. Prometheus --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: prometheus}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: grafana}
+      ports:
+        - {port: 9090, protocol: TCP}
+    - ports:  # UI + health-probe
+        - {port: 9090, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: prometheus}
+  policyTypes: [Egress]
+  egress:
+    # scrape метрик
+    - to:
+        - podSelector:
+            matchLabels: {app: client}
+      ports:
+        - {port: 8001, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: web}
+      ports:
+        - {port: 8001, protocol: TCP}
+    # push алертов в alertmanager
+    - to:
+        - podSelector:
+            matchLabels: {app: alertmanager}
+      ports:
+        - {port: 9093, protocol: TCP}
+
+---
+# -------- 9. Alertmanager --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alertmanager-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: alertmanager}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: prometheus}
+      ports:
+        - {port: 9093, protocol: TCP}
+    - ports:  # UI
+        - {port: 9093, protocol: TCP}
+
+---
+# -------- 10. Grafana --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: grafana}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:  # UI (port-forward/ingress)
+        - {port: 3000, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: grafana}
+  policyTypes: [Egress]
+  egress:
+    # datasources: prometheus, loki, jaeger
+    - to:
+        - podSelector:
+            matchLabels: {app: prometheus}
+      ports:
+        - {port: 9090, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: loki}
+      ports:
+        - {port: 3100, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app: jaeger}
+      ports:
+        - {port: 16686, protocol: TCP}
+
+---
+# -------- 11. Loki --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: loki}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: promtail}
+        - podSelector:
+            matchLabels: {app: grafana}
+      ports:
+        - {port: 3100, protocol: TCP}
+
+---
+# -------- 12. Promtail --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: promtail-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: promtail}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: loki}
+      ports:
+        - {port: 3100, protocol: TCP}
+
+---
+# -------- 13. Jaeger --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jaeger-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app: jaeger}
+  policyTypes: [Ingress]
+  ingress:
+    # OTLP gRPC/HTTP от client и web
+    - from:
+        - podSelector:
+            matchLabels: {app: client}
+        - podSelector:
+            matchLabels: {app: web}
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+    # UI + datasource-запросы от grafana
+    - from:
+        - podSelector:
+            matchLabels: {app: grafana}
+      ports:
+        - {port: 16686, protocol: TCP}
+    - ports:  # UI через port-forward
+        - {port: 16686, protocol: TCP}
+{{- end }}

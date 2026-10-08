@@ -6,7 +6,10 @@ image:
   repository: ghcr.io/rosimus/opc-monitor
   tag: v14-multistage
   pullPolicy: IfNotPresent
-
+  
+networkPolicy:
+  enabled: true
+  
 web:
   enabled: true
   replicaCount: 2
