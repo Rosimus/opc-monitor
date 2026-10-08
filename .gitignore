@@ -115,6 +115,7 @@ terraform/terraform.rc
 # Используем "certs/*" — игнорируется содержимое, а не сама папка.
 certs/*
 !certs/.gitkeep
+!certs/generate.py
 
 *.pem
 *.key
