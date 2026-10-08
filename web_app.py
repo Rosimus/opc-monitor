@@ -10,11 +10,11 @@ import os
 import secrets
 import logging
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from utils import load_config
 from db import Database
-from time import time
 from functools import wraps
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
@@ -219,28 +219,58 @@ def load_thresholds() -> Dict[str, Dict[str, Any]]:
 
 
 THRESHOLDS: Dict[str, Dict[str, Any]] = load_thresholds()
+
 # ============================================
 # Reload порогов по pub/sub (multi-replica safety)
 # ============================================
-
+# При HPA 4 реплики web каждая держит свою копию THRESHOLDS в памяти.
+# Когда оператор меняет порог через /api/thresholds/update, обновляется
+# только та реплика, что приняла запрос. Остальные узнают об изменении
+# через Redis pub/sub и перезагружают THRESHOLDS из БД.
 def _thresholds_listener():
     """Слушает Redis pub/sub и перезагружает THRESHOLDS при изменении."""
     if not db.redis_client:
         logger.info("Redis недоступен — listener порогов не запущен")
         return
+
+    # Отдельный клиент для pub/sub, без socket_timeout.
+    # На общем клиенте socket_timeout=2 (для обычных команд кэша),
+    # и pubsub.listen() падал бы с TimeoutError при простое.
+    import redis as _redis
     try:
-        pubsub = db.redis_client.pubsub()
+        pubsub_client = _redis.Redis(
+            host=os.getenv('REDIS_HOST', 'localhost'),
+            port=int(os.getenv('REDIS_PORT', '6379')),
+            password=os.getenv('REDIS_PASSWORD') or None,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            # socket_timeout НЕ задаём — иначе get_message(timeout=1)
+            # тоже будет падать раньше времени.
+        )
+        pubsub = pubsub_client.pubsub()
         pubsub.subscribe('thresholds:changed')
-        for msg in pubsub.listen():
-            if msg['type'] == 'message':
+        logger.info("Thresholds listener запущен (channel=thresholds:changed)")
+    except Exception as e:
+        logger.error("Thresholds listener init failed: %s", e, exc_info=True)
+        return
+
+    while True:
+        try:
+            # timeout=1 — мягкий поллинг, чтобы цикл просыпался и мог логировать
+            # при желании. get_message() на таймауте возвращает None, не бросает.
+            msg = pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if msg and msg.get('type') == 'message':
                 global THRESHOLDS
                 THRESHOLDS = load_thresholds()
-                logger.info("THRESHOLDS reloaded: param=%s", msg['data'])
-    except Exception as e:
-        logger.error("Thresholds listener died: %s", e, exc_info=True)
+                logger.info("THRESHOLDS reloaded: param=%s", msg.get('data'))
+        except Exception as e:
+            logger.error("Thresholds listener error: %s", e, exc_info=True)
+            time.sleep(1)
+
 
 _thread = threading.Thread(target=_thresholds_listener, daemon=True, name="thresholds-listener")
 _thread.start()
+
 ALL_FIELDS: List[str] = ['timestamp', 'status'] + param_ids
 
 
@@ -285,13 +315,13 @@ def track_metrics(endpoint):
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            start = time()
+            start = time.time()
             try:
                 result = f(*args, **kwargs)
                 return result
             finally:
                 api_requests.labels(endpoint=endpoint, method=request.method).inc()
-                api_latency.labels(endpoint=endpoint).observe(time() - start)
+                api_latency.labels(endpoint=endpoint).observe(time.time() - start)
         return decorated
     return decorator
 
