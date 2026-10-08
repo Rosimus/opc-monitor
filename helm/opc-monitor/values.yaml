@@ -75,7 +75,27 @@ postgres:
 
 redis:
   enabled: true
-  image: redis:7-alpine
+  # RedisFailover CR (Spotahome operator) — 3 redis + 3 sentinel.
+  failoverName: opc-redis
+  replicas: 3
+  storage: 1Gi
+  storageClassName: standard
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+  sentinel:
+    replicas: 3
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
 
 prometheus:
   enabled: true

@@ -131,12 +131,19 @@ spec:
                 secretKeyRef:
                   name: opc-secrets
                   key: POSTGRES_DB
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
+            # Sentinel-режим (K8s). db.py читает REDIS_SENTINEL_HOSTS
+            # и использует redis.sentinel.Sentinel вместо single-node.
+            - name: REDIS_SENTINEL_HOSTS
+              value: "rfr-{{ .Values.redis.failoverName }}-sentinel"
+            - name: REDIS_SENTINEL_PORT
+              value: "26379"
+            - name: REDIS_MASTER_NAME
+              value: {{ .Values.redis.failoverName | quote }}
+            # REDIS_URL оставлен для Flask-Limiter (rate limiting);
+            # после failover master меняется, но limiter ходит через
+            # Service rfr-... — оператор сам переключает его на новый master.
             - name: REDIS_URL
-              value: "redis://redis:6379"
+              value: "redis://rfr-{{ .Values.redis.failoverName }}:6379"
             - name: RATELIMIT_DEFAULT
               value: {{ .Values.web.ratelimitDefault | default "1000 per hour, 200 per minute" | quote }} 
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

@@ -94,7 +94,35 @@ jobs:
           out.write_text(yaml.safe_dump({'certs': certs}), encoding='utf-8')
           print(f'Rendered {out}')
           "@
+      - name: Ensure redis-operator installed
+        shell: powershell
+        run: |
+          # Проверяем CRD — если есть, оператор уже установлен
+          $crd = kubectl get crd redisfailovers.databases.spotahome.com --ignore-not-found 2>$null
+          if ($crd) {
+            Write-Host "Redis Operator CRD already installed"
+            exit 0
+          }
 
+          Write-Host "Installing Redis Operator..."
+          kubectl create namespace redis-operator 2>$null
+          if ($LASTEXITCODE -ne 0) { Write-Host "namespace already exists (ok)" }
+
+          # CRD через create, а не apply: apply превышает лимит аннотации
+          # last-applied-configuration (256KB) на больших CRD.
+          kubectl create -f https://raw.githubusercontent.com/spotahome/redis-operator/v1.2.4/manifests/databases.spotahome.com_redisfailovers.yaml
+
+          helm repo add spotahome https://spotahome.github.io/redis-operator 2>$null
+          helm repo update spotahome
+
+          helm upgrade --install redis-operator spotahome/redis-operator `
+            --namespace redis-operator `
+            --set image.tag=v1.2.4 `
+            --skip-crds `
+            --wait --timeout 3m
+
+          Write-Host "Redis Operator installed"
+          
       - name: Deploy with Helm
         shell: powershell
         run: |

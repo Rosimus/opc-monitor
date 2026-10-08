@@ -107,9 +107,14 @@ spec:
         - {port: 5432, protocol: TCP}
     - to:
         - podSelector:
-            matchLabels: {app: redis}
+            matchLabels: {app.kubernetes.io/component: redis}
       ports:
         - {port: 6379, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/component: sentinel}
+      ports:
+        - {port: 26379, protocol: TCP}
     - to:
         - podSelector:
             matchLabels: {app: jaeger}
@@ -160,9 +165,14 @@ spec:
         - {port: 5432, protocol: TCP}
     - to:
         - podSelector:
-            matchLabels: {app: redis}
+            matchLabels: {app.kubernetes.io/component: redis}
       ports:
         - {port: 6379, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/component: sentinel}
+      ports:
+        - {port: 26379, protocol: TCP}
     - to:
         - podSelector:
             matchLabels: {app: jaeger}
@@ -190,7 +200,9 @@ spec:
         - {port: 5432, protocol: TCP}
 
 ---
-# -------- 7. Redis --------
+# -------- 7. Redis (master + replica) --------
+# Pod'ы RedisFailover несут метки app.kubernetes.io/name=redis-failover
+# и app.kubernetes.io/component=redis|sentinel.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -198,7 +210,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
-    matchLabels: {app: redis}
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [redis-failover]}
+      - {key: app.kubernetes.io/component, operator: In, values: [redis]}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -208,7 +222,45 @@ spec:
             matchLabels: {app: web}
       ports:
         - {port: 6379, protocol: TCP}
+    # Sentinel-to-redis (мониторинг состояния мастера)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-failover
+              app.kubernetes.io/component: sentinel
+      ports:
+        - {port: 6379, protocol: TCP}
 
+---
+# -------- 7b. Sentinel --------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-sentinel-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-failover
+      app.kubernetes.io/component: sentinel
+  policyTypes: [Ingress]
+  ingress:
+    # Приложение ходит к sentinel за адресом мастера
+    - from:
+        - podSelector:
+            matchLabels: {app: client}
+        - podSelector:
+            matchLabels: {app: web}
+      ports:
+        - {port: 26379, protocol: TCP}
+    # Sentinel-к-sentinel: обмен мнениями при failover
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-failover
+              app.kubernetes.io/component: sentinel
+      ports:
+        - {port: 26379, protocol: TCP}
 ---
 # -------- 8. Prometheus --------
 apiVersion: networking.k8s.io/v1

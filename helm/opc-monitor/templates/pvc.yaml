@@ -15,23 +15,6 @@ spec:
   storageClassName: {{ .Values.postgres.storageClassName }}
 {{- end }}
 ---
-{{- if .Values.redis.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: redis-pvc
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "opc-monitor.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: standard
-{{- end }}
----
 {{- if .Values.grafana.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim

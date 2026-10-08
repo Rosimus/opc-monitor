@@ -1,0 +1,54 @@
+{{- if .Values.redis.enabled }}
+# ============================================================
+# RedisFailover (Spotahome Redis Operator).
+#
+# Создаёт:
+#   - StatefulSet rfr-{{ .Values.redis.failoverName }} — {{ .Values.redis.replicas }} redis-пода
+#   - Deployment rfs-{{ .Values.redis.failoverName }} — {{ .Values.redis.sentinel.replicas }} sentinel-пода
+#   - Services:
+#       rfr-{{ .Values.redis.failoverName }}            (6379, master)
+#       rfr-{{ .Values.redis.failoverName }}-readonly   (6379, replica)
+#       rfr-{{ .Values.redis.failoverName }}-sentinel   (26379, sentinel)
+#
+# Требует установленного CRD redisfailovers.databases.spotahome.com —
+# шаг "Ensure redis-operator" в cd.yml.
+# ============================================================
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: {{ .Values.redis.failoverName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  sentinel:
+    replicas: {{ .Values.redis.sentinel.replicas }}
+    resources:
+      requests:
+        cpu: {{ .Values.redis.sentinel.resources.requests.cpu | quote }}
+        memory: {{ .Values.redis.sentinel.resources.requests.memory | quote }}
+      limits:
+        cpu: {{ .Values.redis.sentinel.resources.limits.cpu | quote }}
+        memory: {{ .Values.redis.sentinel.resources.limits.memory | quote }}
+  redis:
+    replicas: {{ .Values.redis.replicas }}
+    resources:
+      requests:
+        cpu: {{ .Values.redis.resources.requests.cpu | quote }}
+        memory: {{ .Values.redis.resources.requests.memory | quote }}
+      limits:
+        cpu: {{ .Values.redis.resources.limits.cpu | quote }}
+        memory: {{ .Values.redis.resources.limits.memory | quote }}
+    storage:
+      keepAfterDeletion: false
+      persistentVolumeClaim:
+        metadata:
+          name: {{ .Values.redis.failoverName }}-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ .Values.redis.storageClassName }}
+          resources:
+            requests:
+              storage: {{ .Values.redis.storage }}
+{{- end }}
