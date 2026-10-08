@@ -40,8 +40,20 @@ services:
       - opc-net
     environment:
       - TZ=Europe/Moscow
+      # OPC UA security
+      - OPC_ADVERTISE_URL=${OPC_ADVERTISE_URL:-opc.tcp://server:4840}
+      - OPC_SECURITY_MODE=${OPC_SECURITY_MODE:-None}
+      - OPC_CERT_DIR=/certs
+      - OPC_USER=${OPC_USER:-operator}
+      - OPC_PASSWORD=${OPC_PASSWORD:-}
+    volumes:
+      # Сертификаты монтируем read-only. Внутри контейнера процесс user 1000
+      # читает /certs/server_cert.pem и /certs/server_key.pem.
+      - ./certs:/certs:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost', 4840)); s.close()"]
+      # Внутри контейнера python-opcua слушает адрес из advertise_url (server:4840),
+      # а не 127.0.0.1. Поэтому healthcheck бьёт по имени сервиса.
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(2); s.connect(('server', 4840)); s.close()"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -60,15 +72,27 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml
+      # Сертификаты — те же, read-only.
+      - ./certs:/certs:ro
     networks:
       - opc-net
     environment:
       - TZ=Europe/Moscow
       - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-opc_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-opc_monitor}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_CACHE_TTL=${REDIS_CACHE_TTL:-30}
       - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      # OPC UA security + URL override
+      - OPC_URL=${OPC_URL:-opc.tcp://server:4840}
+      - OPC_SECURITY_MODE=${OPC_SECURITY_MODE:-None}
+      - OPC_CERT_DIR=/certs
+      - OPC_USER=${OPC_USER:-operator}
+      - OPC_PASSWORD=${OPC_PASSWORD:-}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_SERVICE_NAME=opc-monitor-client
       - OTEL_EXPORTER_OTLP_INSECURE=true
@@ -81,7 +105,7 @@ services:
 
   web:
     build: .
-    command: gunicorn -k eventlet -w 1 web_app:app -b 0.0.0.0:5000
+    command: gunicorn -k gevent -w 1 --worker-tmp-dir /dev/shm web_app:app -b 0.0.0.0:5000
     ports:
       - "5000:5000"
       - "8001:8001"
@@ -99,6 +123,10 @@ services:
     environment:
       - TZ=Europe/Moscow
       - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-opc_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-opc_monitor}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_CACHE_TTL=${REDIS_CACHE_TTL:-30}

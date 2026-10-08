@@ -10,6 +10,7 @@ limits==3.7.0
 
 # === OPC UA ===
 opcua==0.98.13                                  # без фикса PYSEC-2026-888, принять риск
+cryptography==50.0.2                            # для OPC UA SignAndEncrypt (X.509, TLS)
 
 # === Database ===
 psycopg2-binary==2.9.9
@@ -25,7 +26,7 @@ structlog==24.1.0
 
 # === Server ===
 gunicorn==26.2.0
-eventlet==0.41.2                                # было 0.33.3, CVE PYSEC-2026-1307/1350/2472
+gevent==24.11.1                                 # заменён eventlet (deprecated, удалён из gunicorn 23+)
 
 # === Observability ===
 prometheus-client==0.26.0
