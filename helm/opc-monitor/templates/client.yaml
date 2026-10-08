@@ -151,13 +151,25 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.client.resources | nindent 12 }}
+          # Liveness: проверяем свежесть /tmp/client_healthy, а не открытость
+          # порта 8001. Порт живёт в отдельном потоке (prometheus_client) и
+          # продолжает отвечать, даже если основной цикл чтения OPC завис.
+          # Подробнее — см. _touch_heartbeat() в client.py.
+          #
+          # 90 секунд = 18 пропущенных циклов (цикл 5 с). Такой запас
+          # переживает короткие лаги БД или OPC, но ловит реальное зависание.
           livenessProbe:
-            tcpSocket:
-              port: 8001
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  ts=$(cat /tmp/client_healthy 2>/dev/null | cut -d. -f1)
+                  [ -n "$ts" ] && [ $(( $(date +%s) - ts )) -lt 90 ]
+            initialDelaySeconds: 60
+            periodSeconds: 30
             failureThreshold: 3
-            timeoutSeconds: 3
+            timeoutSeconds: 5
           readinessProbe:
             tcpSocket:
               port: 8001

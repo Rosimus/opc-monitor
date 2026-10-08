@@ -52,17 +52,10 @@ retention_days: int = retention.get('days', 30)
 email_password: str = os.environ.get('EMAIL_PASSWORD', '')
 
 # --- Безопасность OPC UA ---
-# Режимы:
-#   None            — без шифрования (dev/тесты)
-#   Sign            — подпись
-#   SignAndEncrypt  — подпись + шифрование (prod)
 OPC_SECURITY_MODE: str = os.getenv("OPC_SECURITY_MODE", "None").strip()
 OPC_CERT_DIR: str = os.getenv("OPC_CERT_DIR", "/certs")
 OPC_USER: str = os.getenv("OPC_USER", "")
 OPC_PASSWORD: str = os.getenv("OPC_PASSWORD", "")
-
-# URL сервера можно переопределить через env (для локальных прогонов,
-# где config.yaml содержит "opc.tcp://server:4840" — резолвится только в docker).
 OPC_URL: str = os.getenv("OPC_URL", opc_cfg['url'])
 
 # Пороги
@@ -91,20 +84,34 @@ cycle_count: int = 0
 offline_mode: bool = False
 last_known_values: Dict[str, float] = {}
 running = True
-# shutdown_event — позволяет мгновенно прервать sleep() в основном цикле,
-# не дожидаясь окончания интервала. Устанавливается из signal handler.
 shutdown_event = threading.Event()
+
+
+# --- Heartbeat-файл для liveness probe ---
+# Liveness probe в K8s проверяет, что этот файл обновлялся не позже
+# чем N секунд назад. Если основной цикл зависнет на OPC read или
+# db.insert_measurement — файл перестанет обновляться, kubelet
+# перезапустит pod. tcpSocket:8001 в этой роли бесполезен: Prometheus-порт
+# живёт в отдельном потоке и продолжает отвечать, даже если данные не идут.
+_tmp_dir = tempfile.gettempdir()
+_ready_default = os.path.join(_tmp_dir, 'client_ready')
+_healthy_default = os.path.join(_tmp_dir, 'client_healthy')
+ready_path = os.environ.get('READY_FILE') or _ready_default
+healthy_path = os.environ.get('HEALTHY_FILE') or _healthy_default
+
+
+def _touch_heartbeat() -> None:
+    """Записывает unix timestamp в heartbeat-файл. Вызывается после успешного цикла."""
+    try:
+        with open(healthy_path, 'w') as f:
+            f.write(str(time.time()))
+    except Exception as e:
+        logger.warning("Failed to update heartbeat", path=healthy_path, error=str(e))
 
 
 # --- Безопасный OPC UA клиент ---
 def _build_secure_client(url: str) -> Client:
-    """
-    Создаёт Client с настроенной безопасностью.
-
-    В режиме None — обычное подключение без шифрования (dev/CI).
-    В режимах Sign / SignAndEncrypt — Basic256Sha256 с клиентским
-    сертификатом и логином/паролем OPC UA.
-    """
+    """Создаёт Client с настроенной безопасностью (см. docstring в README)."""
     client = Client(url)
 
     if OPC_SECURITY_MODE == "None":
@@ -129,7 +136,6 @@ def _build_secure_client(url: str) -> Client:
     if missing:
         raise RuntimeError(f"OPC UA: не найдены сертификаты: {missing}")
 
-    # Формат строки: Policy,Mode,ClientCert,ClientKey,ServerCert
     mode = "SignAndEncrypt" if OPC_SECURITY_MODE == "SignAndEncrypt" else "Sign"
     client.set_security_string(
         f"Basic256Sha256,{mode},{client_cert},{client_key},{server_cert}"
@@ -137,9 +143,6 @@ def _build_secure_client(url: str) -> Client:
 
     client.set_user(OPC_USER)
     client.set_password(OPC_PASSWORD)
-
-    # ApplicationURI должен совпадать с SAN URI в клиентском сертификате
-    # (см. certs/generate.py: san_uri="urn:opc-monitor:client").
     client.application_uri = "urn:opc-monitor:client"
 
     return client
@@ -162,7 +165,6 @@ def send_email_alert(subject: str, body: str) -> bool:
 
     try:
         server = smtplib.SMTP(email_cfg['smtp_server'], email_cfg['smtp_port'])
-        # Явный TLS-контекст — защита от downgrade-атак, где MITM блокирует STARTTLS
         server.starttls(context=ssl.create_default_context())
         server.login(email_cfg['sender'], email_password)
         server.sendmail(email_cfg['sender'], email_cfg['recipient'], msg.as_string())
@@ -221,7 +223,6 @@ def cleanup_worker():
                     logger.info("Old records deleted", count=deleted)
             except Exception as e:
                 logger.error("Cleanup error", error=str(e))
-        # Прерываемый sleep — реагируем на shutdown в пределах ~1 секунды
         if shutdown_event.wait(timeout=3600):
             break
 
@@ -243,9 +244,6 @@ def signal_handler(sig, frame):
     global running
     logger.info("Shutting down...")
     running = False
-    # НЕ вызываем sys.exit(0): он поднимает SystemExit в произвольной точке
-    # выполнения (в т.ч. внутри транзакции db.insert_measurement) и может
-    # оборвать запись. shutdown_event будит основной цикл и циклы-воркеры.
     shutdown_event.set()
 
 
@@ -256,12 +254,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 threading.Thread(target=cleanup_worker, daemon=True).start()
 threading.Thread(target=ping_opc_server, args=(OPC_URL,), daemon=True).start()
 
-# --- Сигнал готовности для healthcheck ---
-# Путь настраивается через env READY_FILE.
-# tempfile.gettempdir() возвращает /tmp на Linux и %TEMP% на Windows —
-# без литерала '/tmp' в коде, чтобы SAST-сканер не ругался.
-_ready_default = os.path.join(tempfile.gettempdir(), 'client_ready')
-ready_path = os.environ.get('READY_FILE') or _ready_default
+# --- Сигнал готовности для readiness probe ---
 try:
     ready_dir = os.path.dirname(ready_path)
     if ready_dir:
@@ -351,7 +344,6 @@ while running:
             for pid in param_ids:
                 measurement[pid] = values.get(pid, 0.0)
 
-            # Обернуть обработку одного цикла в OTel-спан
             with tracer.start_as_current_span("opc-read-cycle") as span:
                 span.set_attribute("opc.status", status)
                 span.set_attribute("opc.params_count", len(param_ids))
@@ -359,19 +351,20 @@ while running:
                 db.insert_measurement(measurement)
                 db.save_last_status(status, now)
 
+                # Heartbeat для liveness probe — только после успешной
+                # записи в БД. Если БД лежит или OPC висит — файл не
+                # обновится, kubelet перезапустит pod.
+                _touch_heartbeat()
+
                 # Уведомление через WebSocket
                 try:
-                    # Внутренний вызов внутри namespace opc-monitor.
-                    # Трафик не покидает кластер, endpoint отдаёт 204 без данных.
                     requests.post('http://web:5000/api/notify', timeout=1)  # nosemgrep
                 except Exception as e:
                     logger.debug("Notify web failed", error=str(e))
 
-                # Логирование (trace_id добавится автоматически)
                 val_str = ", ".join([f"{pid}={values.get(pid, 0):.2f}" for pid in param_ids])
                 logger.info("Measurement", status=status, values=val_str)
 
-                # Обработка аварии
                 if status == "ALARM":
                     current_time = time.time()
                     if current_time - last_alert_time > alert_cooldown:
@@ -389,8 +382,6 @@ while running:
 
                         last_alert_time = current_time
 
-            # Прерываемый sleep: при получении SIGTERM shutdown_event.wait()
-            # вернёт True немедленно, и мы выйдем из цикла без задержки.
             if shutdown_event.wait(timeout=5):
                 break
 
