@@ -9,13 +9,14 @@
 [![Kubernetes](https://img.shields.io/badge/kubernetes-k3s%20%7C%20minikube-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/helm-3.12+-0F1689)](https://helm.sh/)
 [![ArgoCD](https://img.shields.io/badge/argocd-GitOps-orange)](https://argo-cd.readthedocs.io/)
+[![OPC UA](https://img.shields.io/badge/OPC%20UA-SignAndEncrypt-blueviolet)](https://opcfoundation.org/about/opc-technologies/opc-ua/)
 [![Tests](https://img.shields.io/badge/tests-78%20passed-brightgreen)](#-тестирование)
 [![Security](https://img.shields.io/badge/security-audited-brightgreen)](../SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **🇬🇧 [English version](../README.md)** | 🇷🇺 Русская версия
 
-> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis, 9 контейнеров, 78 тестов, 75% unit-coverage, HPA-автоскейлинг web-подов 2–5 реплик в проде, VPA в режиме `Off` для right-sizing, k6 load-tested при 256 RPS с p95 = 4 ms. Развёртывание: Docker Compose для быстрого теста, Helm + Minikube для полного стека, Terraform для Yandex Cloud.
+> **TL;DR** — Real-time мониторинг промышленного оборудования на OPC UA: 8 параметров, веб-дашборд с графиками и алертами, полный observability-стек (Prometheus + Grafana + Loki + Jaeger), CI/CD через GitHub Actions с self-hosted runner, GitOps через ArgoCD. Python + Flask + PostgreSQL + Redis. **Production-grade надёжность:** OPC UA `Basic256Sha256_SignAndEncrypt` с mutual X.509, IEC 62541-100 Nameplate/DeviceHealth, микросегментация IEC 62443 (17 NetworkPolicy), CloudNativePG с 3 репликами PostgreSQL и автоматическим failover (~5 с), Spotahome Redis Sentinel (3 redis + 3 sentinel, failover ~10 с), client-liveness на heartbeat-файле. 9 контейнеров, 78 тестов, 75% unit-coverage, HPA-автоскейлинг 2–5 реплик, VPA в режиме `Off`, k6 load-tested при 256 RPS с p95 = 4 ms.
 
 ## 📋 Содержание
 
@@ -50,6 +51,11 @@
 - 📥 **Экспорт данных** в CSV и Excel
 - 🎯 **REST API** с автогенерируемой документацией (Swagger)
 
+### Соответствие стандартам OPC UA
+- 🔒 **OPC UA SignAndEncrypt** — политика `Basic256Sha256_SignAndEncrypt` с mutual X.509 и учётными данными OPC UA-сессии
+- 🏷️ **IEC 62541-100 Nameplate** — Manufacturer, Model, SerialNumber, HardwareRevision, SoftwareRevision, DeviceRevision как стандартные свойства
+- 🩺 **IEC 62541-100 DeviceHealth** — Int32 enum (NORMAL / FAILURE / CHECK_FUNCTION / OFF_SPEC / MAINTENANCE_REQUIRED), обновляется каждый цикл
+
 ### Observability
 - 📉 **Метрики:** Prometheus + Grafana as code (5 панелей)
 - 🔔 **Алерты:** Alertmanager с 4 правилами
@@ -57,49 +63,61 @@
 - 🔍 **Трейсы:** OpenTelemetry + Jaeger (distributed tracing)
 - 🔗 **Корреляция:** `trace_id` в логах и заголовок `X-Trace-Id` в каждом HTTP-ответе + переход Loki ↔ Jaeger одним кликом
 
+### Надёжность и HA
+- 🗄️ **PostgreSQL HA** — CloudNativePG с 3 репликами (1 primary + 2 replica), автоматический failover ~5 с, WAL archiving (PITR-ready)
+- 🔴 **Redis Sentinel** — Spotahome operator с 3 redis + 3 sentinel; автоматические выборы master, клиент переразрешает адрес через `redis.sentinel.Sentinel`
+- 🩺 **Client-liveness на heartbeat** — ловит зависание OPC read-loop, а не только открытость метрик-порта
+- 🛡️ **Микросегментация IEC 62443** — default-deny Ingress + Egress с 17 per-service NetworkPolicy
+- 📈 **HPA** — CPU-автоскейлинг web-подов (2–5 реплик в проде)
+- 📐 **VPA в режиме `Off`** — рекомендации по right-sizing для всех workload'ов
+- ⚡ **k6 load tested** — 256 RPS sustained, p95 = 4 ms, HPA отскейлил 2 → 4
+
 ### DevOps
 - 🐳 **Docker-образ** с multi-stage сборкой и non-root пользователем
 - ☸️ **Kubernetes** через kubectl / Helm
 - ⛵ **Helm-чарт** с параметризацией под staging/prod
-- 🔑 **Управление секретами** через GitHub Secrets + `values-secrets.yaml`
+- 🔑 **Управление секретами** через GitHub Secrets + `values-secrets.yaml` + `certs-secrets.yaml`
 - 🌩️ **Terraform** — IaC для Yandex Cloud (k3s, managed PostgreSQL)
 - 🔄 **CI/CD** через GitHub Actions с self-hosted runner
 - 🔀 **ArgoCD** — GitOps-подход (pull-модель деплоя)
 - ✅ **78 тестов** (29 unit + 12 integration API + 37 integration DB) + Codecov, порог покрытия 70%
-- 📈 **HPA** — CPU-автоскейлинг web-подов (2–5 реплик в проде)
-- 📐 **VPA в режиме `Off`** — рекомендации по right-sizing для всех workload'ов
-- ⚡ **k6 load tested** — 256 RPS sustained, p95 = 4 ms, HPA отскейлил 2 → 4
 - 📦 **GHCR** — автоматическая загрузка образов
 - 🛡️ **Security Hardened** — строгий CSP (без `unsafe-inline` в `script-src`), полный аудит (SAST/SCA/JWT/ZAP/K8s/Docker/Terraform), 0 CVE, 0 находок Bandit/Hadolint/CodeQL
 
 ## 🏗️ Архитектура
 
-Проект — это **распределённая система из 9 контейнеров**, объединённых общей сетью и слоем хранения. Каждый сервис выполняет одну функцию.
+Проект — это **распределённая система из 9+ контейнеров**, объединённых общей сетью и слоем хранения. Каждый сервис выполняет одну функцию.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    OPC UA Server (PLC)                   │
-│                    opc.tcp://server:4840                 │
+│              OPC UA Server (PLC Simulator)               │
+│  • 8 параметров (random walk + mean reversion + аварии)  │
+│  • IEC 62541-100: Nameplate + DeviceHealth               │
+│  • SignAndEncrypt (Basic256Sha256) + user auth           │
+│  • advertise=opc.tcp://0.0.0.0:4840                      │
 └───────────────────────────┬──────────────────────────────┘
-                            │ OPC UA (TCP)
+                            │ OPC UA (TCP, TLS)
                             ▼
 ┌──────────────────────────────────────────────────────────┐
 │              OPC Client (Python + opcua)                 │
 │  • Сбор данных каждые 5 секунд                           │
-│  • Проверка порогов                                      │
-│  • Отправка алертов (Email, Telegram)                    │
-│  • Метрики Prometheus на :8001                           │
-│  • OTel трейсы в Jaeger                                  │
+│  • Проверка порогов, отправка алертов (Email, Telegram)  │
+│  • Запись в PostgreSQL + кэш в Redis                     │
+│  • Liveness через /tmp/client_healthy heartbeat          │
+│  • Метрики Prometheus на :8001, OTel трейсы в Jaeger     │
 └───────────────────────────┬──────────────────────────────┘
-                            │ SQLAlchemy + Redis
+                            │ SQLAlchemy + Redis Sentinel
                             ▼
-┌──────────────────────────────────────────────────────────┐
-│            PostgreSQL 15 + Redis Cache                   │
-└───────────────────────────┬──────────────────────────────┘
+┌──────────────────────────┬───────────────────────────────┐
+│  CloudNativePG           │  Spotahome RedisFailover      │
+│  • 3 реплики PostgreSQL  │  • 3 redis (1 master + 2 rep) │
+│  • auto-failover ~5 с    │  • 3 sentinel, failover ~10 с │
+│  • WAL archiving (PITR)  │  • Services: rfr/rfs          │
+└──────────────────────────┬───────────────────────────────┘
                             │
                             ▼
 ┌──────────────────────────────────────────────────────────┐
-│         Web App (Flask + Gunicorn)                       │
+│         Web App (Flask + Gunicorn + gevent)              │
 │  • REST API с JWT-аутентификацией                        │
 │  • Web UI (Chart.js, dark/light тема)                    │
 │  • Security headers (Talisman) + Rate limiting           │
@@ -121,12 +139,13 @@
 
 | Категория | Технологии |
 |-----------|------------|
-| **Backend** | Python 3.11, Flask, SQLAlchemy, Gunicorn, structlog |
+| **Backend** | Python 3.11, Flask, SQLAlchemy, Gunicorn (gevent), structlog |
 | **Frontend** | Vanilla JS (ES2020), Chart.js, XLSX, jwt-decode — локально в `static/js/`, без CDN |
-| **База данных** | PostgreSQL 15, Redis 7 (кэш) |
-| **Аутентификация** | JWT (flask-jwt-extended) |
+| **База данных** | PostgreSQL 15 через **CloudNativePG 1.30** (HA, 3 реплики), Redis 7 через **Spotahome RedisFailover** (Sentinel) |
+| **Аутентификация** | JWT (flask-jwt-extended); OPC UA user auth (basic + X.509 mutual) |
 | **Безопасность** | Flask-Talisman (строгий CSP), Flask-Limiter, Trivy, Bandit, Semgrep, Checkov, CodeQL |
-| **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3 |
+| **OPC UA** | python-opcua 0.98, cryptography 50.x, IEC 62541-100 (Nameplate, DeviceHealth) |
+| **Оркестрация** | Kubernetes (k3s / Minikube), Helm 3, **CloudNativePG Operator**, **Spotahome Redis Operator** |
 | **GitOps** | ArgoCD |
 | **CI/CD** | GitHub Actions, GHCR, self-hosted runner, Dependabot, Codecov |
 | **Metrics** | Prometheus, Alertmanager, Grafana |
@@ -200,14 +219,32 @@
 git clone https://github.com/Rosimus/opc-monitor.git
 cd opc-monitor
 cp .env.example .env
+
+# Генерируем самоподписанные сертификаты для OPC UA
+python certs/generate.py
+
 docker-compose up -d
 # → http://localhost:5000
 ```
 
-**2. Helm + Minikube** — полный стек, включая Grafana/Jaeger/Loki:
+**2. Helm + Minikube** — полный стек, включая CloudNativePG, Redis Sentinel, Grafana/Jaeger/Loki:
 
 ```bash
 minikube start --driver=docker --memory=6144 --cpus=4
+
+# Устанавливаем операторы (один раз на кластер)
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo add spotahome https://spotahome.github.io/redis-operator
+helm repo update
+
+helm upgrade --install cnpg --namespace cnpg-system --create-namespace \
+  cnpg/cloudnative-pg --wait --timeout 5m
+
+kubectl create -f https://raw.githubusercontent.com/spotahome/redis-operator/v1.2.4/manifests/databases.spotahome.com_redisfailovers.yaml
+helm upgrade --install redis-operator spotahome/redis-operator \
+  --namespace redis-operator --create-namespace --skip-crds --wait --timeout 3m
+
+# Деплой приложения
 make build             # docker build -t opc-monitor:latest .
 minikube image load opc-monitor:latest
 make deploy-local      # helm upgrade --install с values-prod.yaml
@@ -262,15 +299,19 @@ minikube image load opc-monitor:$TAG
 helm upgrade --install opc-monitor ./helm/opc-monitor \
   -n opc-monitor \
   -f ./helm/opc-monitor/values-prod.yaml \
+  -f ./helm/opc-monitor/values-secrets.yaml \
+  -f ./helm/opc-monitor/certs-secrets.yaml \
   --set image.repository=opc-monitor \
   --set image.tag=$TAG \
   --set image.pullPolicy=Never \
   --force-conflicts
 
-kubectl rollout status deployment/web -n opc-monitor
+kubectl rollout status deployment/web -n opc-monitor --timeout=8m
 ```
 
 Флаг `--force-conflicts` нужен, если раньше делали ручной `kubectl set image` — Helm 3.10+ использует server-side apply и отказывается менять поля, ownership которых висит на `kubectl-set`.
+
+**Также:** `--timeout=8m` — не случайность. CloudNativePG создаёт реплики последовательно (PVC → primary → replica join) и в Minikube это занимает 4–6 минут. Меньший таймаут истечёт даже на здоровом деплое.
 
 ### Проверка, что в контейнере новый код
 
@@ -315,11 +356,15 @@ kubectl port-forward -n opc-monitor service/jaeger 16686:16686  # Jaeger UI
 1. ✅ Self-hosted runner получает задачу
 2. ✅ Скачивает образ из GHCR
 3. ✅ Загружает в Minikube
-4. ✅ Выполняет `helm upgrade --install` (атомарно, с `--force-conflicts`)
-5. ✅ Подставляет секреты из GitHub Secrets (если заданы)
-6. ✅ Проверяет готовность через `kubectl rollout status`
+4. ✅ **Ensure cnpg-operator installed** — идемпотентная проверка CRD `clusters.postgresql.cnpg.io`, установка Helm-чарта при отсутствии
+5. ✅ **Ensure redis-operator installed** — идемпотентная проверка CRD `redisfailovers.databases.spotahome.com`; `kubectl create` (не apply — чтобы не выйти за лимит `last-applied-configuration`) + `helm --skip-crds`
+6. ✅ **Render certs-secrets.yaml** — записывает временный файл из GitHub Secrets (`OPC_CA_CERT`, `OPC_SERVER_CERT`, `OPC_SERVER_KEY`, `OPC_CLIENT_CERT`, `OPC_CLIENT_KEY`); Python-валидация на непустоту и отсутствие пробелов
+7. ✅ Выполняет `helm upgrade --install` (атомарно, с `--force-conflicts`)
+8. ✅ Подставляет секреты из GitHub Secrets (Postgres, JWT, admin, Grafana, OPC)
+9. ✅ Проверяет готовность через `kubectl rollout status --timeout=8m` (8 минут — на случай CNPG bootstrap)
+10. ✅ Удаляет временный `certs-secrets.yaml` с self-hosted runner'а
 
-**Время от `git push` до работающего приложения: ~60 секунд** ⚡
+**Время от `git push` до работающего приложения: ~60 секунд** для обычного деплоя; **~5–6 минут** — если CNPG пересобирает реплики.
 
 ### 🤖 Dependabot
 
@@ -525,6 +570,15 @@ k6 run --out experimental-prometheus-rw tests/load/k6-test.js
 
 Полный отчёт аудита и список принятых рисков — в **[SECURITY.md](../SECURITY.md)**.
 
+### Уровень OPC UA
+
+- ✅ **SignAndEncrypt** — политика `Basic256Sha256_SignAndEncrypt`, `MessageSecurityMode.SignAndEncrypt`
+- ✅ **Mutual X.509** — клиент проверяет сертификат сервера, сервер — клиента (оба подписаны внутренним CA)
+- ✅ **OPC UA user auth** — `username` / `password` при активации сессии (`user_manager.set_user_manager`)
+- ✅ **Только современные шифры** — `Basic128Rsa15` / `Basic256` отключены явно
+- ✅ **App URI в SAN** — `urn:opc-monitor:client` и `urn:opc-monitor:server`, проверяются при handshake
+- ✅ **Локальный fallback** — `OPC_SECURITY_MODE=None` только для Docker Compose и CI; в проде — `SignAndEncrypt`
+
 ### Уровень приложения
 
 - ✅ **JWT-аутентификация** — flask-jwt-extended, HS256, access-token 60 мин
@@ -540,10 +594,15 @@ k6 run --out experimental-prometheus-rw tests/load/k6-test.js
 - ✅ **Non-root user** — `USER 1000:1000`, числовой UID
 - ✅ **securityContext** — `runAsNonRoot`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`
 - ✅ **readOnlyRootFilesystem** для web, client, server + emptyDir для `/tmp`
-- ✅ **NetworkPolicy** — default-deny ingress, разрешён только internal + web:5000
+- ✅ **Микросегментация IEC 62443** — 17 NetworkPolicy:
+  - `default-deny-all` (Ingress + Egress)
+  - `allow-dns-egress` (53/UDP+TCP к kube-system)
+  - Per-service правила ingress/egress
+  - Redis-поды матчатся по `app.kubernetes.io/part-of: redis-failover` + `component: redis|sentinel`
+  - PostgreSQL-поды матчатся по `cnpg.io/cluster: opc-postgres`
 - ✅ **PodDisruptionBudget** — minAvailable: 1 для web
 - ✅ **ServiceAccount** `opc-app` с `automountServiceAccountToken: false`
-- ✅ **initContainer** `wait-for-postgres` — устраняет race condition при рестарте
+- ✅ **initContainer** `wait-for-postgres` — устраняет race condition при рестарте, ждёт `opc-postgres-rw:5432`
 - ✅ **Resource limits** — CPU, memory, ephemeral-storage для всех контейнеров
 
 ### Уровень БД
@@ -551,6 +610,13 @@ k6 run --out experimental-prometheus-rw tests/load/k6-test.js
 - ✅ **opc_user — NOT superuser** (NOSUPERUSER NOCREATEROLE NOCREATEDB)
 - ✅ **Минимальные привилегии** — CRUD без TRUNCATE/REFERENCES/TRIGGER
 - ✅ **init-скрипт** понижает права при первичной инициализации
+- ✅ **CNPG-управляемая аутентификация** — учётные данные в Secret `opc-postgres-app`, ротация через CNPG
+
+### Уровень отказоустойчивости
+
+- ✅ **CloudNativePG** — 3 реплики PostgreSQL, автоматический failover ~5 с (проверено убийством primary)
+- ✅ **Redis Sentinel** — 3 redis + 3 sentinel, автоматические выборы master ~10 с (проверено убийством master)
+- ✅ **Приложение переживает failover** — без рестартов web/client при переключении primary; `pool_pre_ping=True` + `sentinel.master_for()` переразрешают соединения прозрачно
 
 ### Уровень CI/CD
 
@@ -569,6 +635,8 @@ k6 run --out experimental-prometheus-rw tests/load/k6-test.js
 - ✅ **OWASP Top 10** — A01, A02, A03, A05, A07
 - ✅ **CIS Docker Benchmark** — non-root user, healthcheck
 - ✅ **CIS Kubernetes Benchmark** — securityContext, resource limits, NetworkPolicy
+- ✅ **IEC 62541-100** — стандартные узлы Nameplate, DeviceHealth
+- ✅ **IEC 62443** — сегментация сети, default-deny
 
 ### 📊 Сводка сканеров
 
@@ -597,7 +665,30 @@ k6 run --out experimental-prometheus-rw tests/load/k6-test.js
 
 ## 🔑 Управление секретами
 
-### Для Helm-деплоя (прод)
+### OPC UA-сертификаты (GitHub Secrets → Helm)
+
+OPC UA-сертификаты распространяются следующим образом:
+
+1. **Генерируются один раз локально** (не коммитятся):
+   ```bash
+   python certs/generate.py
+   # → certs/ca_cert.pem, certs/server_cert.pem, certs/server_key.pem,
+   #   certs/client_cert.pem, certs/client_key.pem
+   ```
+
+2. **Кодируются в base64 и добавляются как GitHub Secrets** (Settings → Secrets and variables → Actions):
+   - `OPC_CA_CERT`
+   - `OPC_SERVER_CERT`
+   - `OPC_SERVER_KEY`
+   - `OPC_CLIENT_CERT`
+   - `OPC_CLIENT_KEY`
+   - `OPC_PASSWORD` — пароль для OPC UA-сессии
+
+3. **CD рендерит `certs-secrets.yaml`** во время деплоя из этих секретов, передаёт в `helm upgrade` и удаляет временный файл после.
+
+4. **Helm создаёт Secret `opc-certs`**, который монтируется в `/certs` (mode `0440`) внутри подов server и client.
+
+### Для Helm-деплоя (прод, вручную)
 
 Секреты хранятся в **`helm/opc-monitor/values-secrets.yaml`** — файл в `.gitignore`, не попадает в репозиторий.
 
@@ -608,6 +699,16 @@ cp helm/opc-monitor/values-secrets.yaml.example helm/opc-monitor/values-secrets.
 #   postgresPassword — пароль БД
 #   adminPassword    — пароль admin в web UI
 #   grafanaPassword  — пароль Grafana
+#   opcPassword      — пароль для OPC UA-сессии
+```
+
+Аналогично для сертификатов:
+
+```bash
+cp helm/opc-monitor/certs-secrets.yaml.example helm/opc-monitor/certs-secrets.yaml
+# Заполнить base64-encoded PEM:
+#   Linux: base64 -w0 certs/ca_cert.pem
+#   Windows: [Convert]::ToBase64String([IO.File]::ReadAllBytes("certs\ca_cert.pem"))
 ```
 
 Деплой:
@@ -616,7 +717,8 @@ cp helm/opc-monitor/values-secrets.yaml.example helm/opc-monitor/values-secrets.
 helm upgrade --install opc-monitor ./helm/opc-monitor \
   --namespace opc-monitor \
   --values ./helm/opc-monitor/values-prod.yaml \
-  --values ./helm/opc-monitor/values-secrets.yaml
+  --values ./helm/opc-monitor/values-secrets.yaml \
+  --values ./helm/opc-monitor/certs-secrets.yaml
 ```
 
 ### Для CI/CD (GitHub Actions)
@@ -629,6 +731,12 @@ helm upgrade --install opc-monitor ./helm/opc-monitor \
 | `POSTGRES_PASSWORD` | Пароль PostgreSQL |
 | `ADMIN_PASSWORD` | Пароль admin в web UI |
 | `GRAFANA_PASSWORD` | Пароль Grafana |
+| `OPC_PASSWORD` | Пароль OPC UA-сессии |
+| `OPC_CA_CERT` | Base64 PEM — CA-сертификат |
+| `OPC_SERVER_CERT` | Base64 PEM — сертификат сервера |
+| `OPC_SERVER_KEY` | Base64 PEM — приватный ключ сервера |
+| `OPC_CLIENT_CERT` | Base64 PEM — сертификат клиента |
+| `OPC_CLIENT_KEY` | Base64 PEM — приватный ключ клиента |
 | `CODECOV_TOKEN` | Токен для загрузки покрытия в Codecov |
 
 Настроить: **Settings → Secrets and variables → Actions → New repository secret**.
@@ -640,6 +748,8 @@ helm upgrade --install opc-monitor ./helm/opc-monitor \
 ### Что НЕ должно попадать в репо
 
 - `helm/opc-monitor/values-secrets.yaml` — в `.gitignore`
+- `helm/opc-monitor/certs-secrets.yaml` — в `.gitignore`
+- `certs/*.pem`, `certs/*.key` — в `.gitignore` (трекаются только `certs/generate.py` и `certs/.gitkeep`)
 - `.env`, `.env.*` — в `.gitignore`
 - `terraform/terraform.tfvars` — в `.gitignore`
 - `security-audit/` — в `.gitignore`
@@ -653,6 +763,7 @@ helm upgrade --install opc-monitor ./helm/opc-monitor \
 | **Sealed Secrets** | Секреты шифруются публичным ключом и коммитятся в Git |
 | **SOPS + age/KMS** | Шифрование файлов values; расшифровка при деплое |
 | **HashiCorp Vault + Agent Injector** | Секреты инжектятся в поды напрямую из Vault |
+| **OPC UA GDS** | Global Discovery Server — автоматический выпуск, обновление и отзыв сертификатов |
 
 ## 🧪 Тестирование
 
@@ -661,7 +772,7 @@ make test                    # pytest + coverage + порог 63%
 make test-fast               # без coverage, быстрее
 ```
 
-**78 тест** покрывают:
+**78 тестов** покрывают:
 
 ### Unit-тесты (`tests/test_utils.py`)
 - `get_param_status` — двусторонний и односторонний контроль, edge cases
@@ -697,7 +808,7 @@ make test-fast               # без coverage, быстрее
 - `tracing.py` — инициализация OTel с побочными эффектами
 - `*/tests/*`, `*/__pycache__/*`, `conftest.py`
 
-Конфиг — в `.coveragerc`. Порог `--cov-fail-under=63` в CI (запас 5 п.п. от фактического).
+Конфиг — в `.coveragerc`. Порог `--cov-fail-under=70` в CI (запас 5 п.п. от фактического).
 
 Бейдж покрытия — [Codecov](https://codecov.io/gh/Rosimus/opc-monitor).
 
@@ -708,23 +819,18 @@ opc-monitor/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml               # tests + coverage + build + Trivy + push
-│   │   ├── cd.yml               # deploy через Helm (--force-conflicts)
+│   │   ├── cd.yml               # install operators + render certs + deploy
 │   │   └── codeql.yml           # SAST (GitHub Advanced Security)
 │   └── dependabot.yml           # auto-update deps + SHA-pins
 ├── argocd/
 │   └── application.yaml         # ArgoCD Application (GitOps)
+├── certs/
+│   ├── .gitkeep                 # держит директорию в git
+│   └── generate.py              # генератор CA + server + client сертификатов
 ├── docs/
 │   ├── README.ru.md             # этот файл — русская версия
 │   ├── RUNBOOK.md
 │   ├── adr/                     # Architecture Decision Records
-│   │   ├── 0001-flask-vs-fastapi.md
-│   │   ├── 0001-flask-vs-fastapi.ru.md
-│   │   ├── 0002-loki-vs-elk.md
-│   │   ├── 0002-loki-vs-elk.ru.md
-│   │   ├── 0003-k3s-vs-kind.md
-│   │   ├── 0003-k3s-vs-kind.ru.md
-│   │   ├── 0004-self-hosted-runner.md
-│   │   └── 0004-self-hosted-runner.ru.md
 │   └── screenshots/
 ├── helm/opc-monitor/            # Helm-чарт
 │   ├── Chart.yaml
@@ -732,11 +838,16 @@ opc-monitor/
 │   ├── values-staging.yaml
 │   ├── values-prod.yaml
 │   ├── values-secrets.yaml.example
+│   ├── certs-secrets.yaml.example
 │   ├── dashboards/
 │   │   └── opc-monitor.json
 │   └── templates/
-│       ├── hpa.yaml             # HorizontalPodAutoscaler для web
-│       ├── vpa.yaml             # VerticalPodAutoscaler для всех workload'ов
+│       ├── postgres-cluster.yaml    # CloudNativePG Cluster CR
+│       ├── redis-failover.yaml      # Spotahome RedisFailover CR
+│       ├── secret-certs.yaml        # Secret opc-certs (из certs.*)
+│       ├── network-policy.yaml      # микросегментация IEC 62443 (17 правил)
+│       ├── hpa.yaml                 # HorizontalPodAutoscaler для web
+│       ├── vpa.yaml                 # VerticalPodAutoscaler для всех workload'ов
 │       └── ...
 ├── k8s/                         # Kubernetes-манифесты (kubectl)
 ├── monitoring/
@@ -757,16 +868,11 @@ opc-monitor/
 │   └── load/
 │       └── k6-test.js           # k6 load test (256 RPS, p95 = 4 ms)
 ├── static/js/                   # локальные библиотеки (были в CDN)
-│   ├── app.js                   # + event delegation для CSP
-│   ├── chart.umd.min.js
-│   ├── jwt-decode.min.js
-│   ├── socket.io.min.js         # не подключён, оставлен на будущее
-│   └── xlsx.full.min.js
 ├── templates/index.html
-├── client.py                    # OPC UA клиент
-├── server.py                    # OPC UA симулятор (PLCSimulator)
-├── web_app.py                   # Flask приложение
-├── db.py                        # SQLAlchemy + Redis
+├── client.py                    # OPC UA-клиент (secure, heartbeat)
+├── server.py                    # OPC UA-симулятор (PLCSimulator + Nameplate + DeviceHealth)
+├── web_app.py                   # Flask-приложение
+├── db.py                        # SQLAlchemy + Redis (Sentinel-aware)
 ├── tracing.py                   # OpenTelemetry инициализация
 ├── utils.py
 ├── config.yaml
@@ -840,12 +946,17 @@ terraform destroy   # удалит
 - [ ] **CSP без `'unsafe-inline'` в `style-src`** — вынос inline-стилей в CSS-классы
 - [ ] **OPA/Gatekeeper** — policy-as-code для манифестов (запрет `:latest`, обязательные labels)
 - [ ] **External Secrets Operator** — синхронизация секретов из Vault / Yandex Lockbox
+- [ ] **OPC UA GDS** — Global Discovery Server для автоматического выпуска/отзыва сертификатов
 - [x] **a11y: связка label ↔ input** — устранить warnings Chrome DevTools (Issues)
 
 ### Надёжность
 - [x] **VPA** в режиме `Off` — рекомендации по requests/limits
 - [x] **k6 load testing** — 256 RPS, p95 = 4 ms, HPA отскейлил 2→4
 - [x] **Integration-тесты БД** — покрытие `db.py` на in-memory SQLite
+- [x] **CloudNativePG** — 3 реплики PostgreSQL с автоматическим failover (~5 с)
+- [x] **Redis Sentinel** — 3 redis + 3 sentinel через Spotahome operator
+- [x] **Client-liveness на heartbeat** — ловит зависание read-loop, а не только открытый метрик-порт
+- [x] **Микросегментация IEC 62443** — default-deny + per-service NetworkPolicy
 
 ### DevOps
 - [ ] **Multi-cluster ArgoCD** через ApplicationSet — staging + prod в одном UI
@@ -867,6 +978,14 @@ terraform destroy   # удалит
 - **HPA и `replicas` конфликтуют.** HPA пишет в `.spec.replicas`; если Helm на каждом upgrade тоже задаёт `replicas`, поды «дёргаются». Починили условием в чарте: `{{- if not .Values.web.hpa.enabled }}`.
 - **VPA в `Off` режиме — этого достаточно.** Рекомендации полезны и без автоматической мутации: получаешь data-driven right-sizing без риска рестартов подов и без поломки HPA-скейлинга по CPU.
 - **Нагрузочное тестирование вскрывает недостатки тюнинга.** Изначальная конфигурация web (2 Gunicorn-воркера, 500m CPU) упиралась в p95 = 700 ms при 250 RPS. После перехода на 4 воркера + 1000m CPU p95 упал до **4 ms** — улучшение в 175 раз — и HPA отскейлил tier с 2 до 4 реплик.
+- **python-opcua использует `set_endpoint()` и для bind, и для advertise.** В K8s `server` резолвится в виртуальный ClusterIP, который нельзя забиндить. Биндимся на `0.0.0.0`, анонсируем через Service; SAN `DNS:server` держит TLS-handshake счастливым.
+- **Gunicorn 23+ удалил eventlet worker.** Перешли на `gevent` — активно поддерживается, без monkey-patching, работает с Flask из коробки.
+- **NetworkPolicy с именем «default-deny» может быть allow-all.** Наш первый `network-policy.yaml` назывался `default-deny`, но внутри содержал `from: podSelector: {}` — разрешал весь трафик от всех подов namespace. Имя ≠ поведение. Переписали на настоящий default-deny + per-service allow.
+- **`limits 3.7.0` парсит Sentinel-URL без `/db`.** Flask-Limiter через `limits` склеивал `redis+sentinel://host:26379/mymaster/0` в имя сервиса `mymaster0`. Симптом: `MasterNotFoundError: No master found for 'mymaster0'` на каждом запросе с rate-limit. Правильный формат — без суффикса `/0`.
+- **Меняешь имя сервиса в env — grep по shell-командам, а не только по env.** После перехода на CloudNativePG мы поменяли `POSTGRES_HOST` на `opc-postgres-rw`, но забыли `nc -z postgres 5432` в `wait-for-postgres`. Новые поды застряли в `Init:0/1` навсегда, старые — в `CrashLoopBackOff`, потому что rollout не получал Ready-пода. Урок: `grep -r postgres` по всему чарту перед push.
+- **CNPG bootstrap в Minikube занимает 4–6 минут.** PVC создаются последовательно, затем `initdb`, затем replica join. `timeout=3m` на `kubectl rollout status` истекал до готовности. Подняли до 8m.
+- **Spotahome жёстко регистрирует master под именем `mymaster`.** `metadata.name` RedisFailover CR используется для имён подов и Service'а Sentinel (`rfs-<name>`), но master внутри Sentinel — всегда `mymaster`. Проверено через `sentinel_masters()`. Не полагайтесь на имя CR.
+- **HA нужно проверять реальным kill, а не манифестом.** Мы убили CNPG-primary (`kubectl delete pod opc-postgres-1`) и Sentinel-master — приложение пережило без рестарта. `pool_pre_ping=True` (PostgreSQL) и `sentinel.master_for()` (Redis) переразрешают соединения прозрачно. Манифест, который *выглядит* HA, ещё не HA — пока не доказано под нагрузкой.
 
 ## 📝 Лицензия
 
