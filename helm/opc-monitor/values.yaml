@@ -169,9 +169,12 @@ certs:
   
 opcConfig:
   url: "opc.tcp://server:4840"
-  # URL, который OPC UA-сервер анонсирует клиентам в GetEndpoints.
-  # Для K8s — ClusterIP-сервис (server). Для внешнего доступа — NodePort/LB.
-  advertiseUrl: "opc.tcp://server:4840"
+  # ВАЖНО: python-opcua использует это значение И для bind, И для advertise.
+  # В K8s ClusterIP-сервиса (server) виртуален и не назначен на интерфейс
+  # пода — bind на него невозможен. Поэтому bind на 0.0.0.0 (все интерфейсы).
+  # Клиент подключается по opcConfig.url (opc.tcp://server:4840) через Service.
+  # Сертификат сервера содержит SAN DNS:server, так что TLS-проверка проходит.
+  advertiseUrl: "opc.tcp://0.0.0.0:4840"
   nodePlc: "2:PLC"
   params:
     - id: temperature
