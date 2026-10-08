@@ -228,44 +228,76 @@ THRESHOLDS: Dict[str, Dict[str, Any]] = load_thresholds()
 # только та реплика, что приняла запрос. Остальные узнают об изменении
 # через Redis pub/sub и перезагружают THRESHOLDS из БД.
 def _thresholds_listener():
-    """Слушает Redis pub/sub и перезагружает THRESHOLDS при изменении."""
-    if not db.redis_client:
-        logger.info("Redis недоступен — listener порогов не запущен")
-        return
+    """Слушает Redis pub/sub и перезагружает THRESHOLDS при изменении.
 
-    # Отдельный клиент для pub/sub, без socket_timeout.
-    # На общем клиенте socket_timeout=2 (для обычных команд кэша),
-    # и pubsub.listen() падал бы с TimeoutError при простое.
+    В Sentinel-режиме подписка идёт на master (pub/sub не реплицируется
+    в Redis). При failover master подписка рвётся — ловим, переподключаемся.
+    """
     import redis as _redis
-    try:
-        pubsub_client = _redis.Redis(
+
+    def _connect():
+        sentinel_hosts = os.getenv('REDIS_SENTINEL_HOSTS', '').strip()
+        password = os.getenv('REDIS_PASSWORD') or None
+
+        if sentinel_hosts:
+            from redis.sentinel import Sentinel
+            sentinel_port = int(os.getenv('REDIS_SENTINEL_PORT', '26379'))
+            master_name = os.getenv('REDIS_MASTER_NAME', 'mymaster')
+            hosts = [
+                (h.strip(), sentinel_port)
+                for h in sentinel_hosts.split(',')
+                if h.strip()
+            ]
+            sentinel = Sentinel(
+                hosts, password=password, socket_connect_timeout=2,
+            )
+            client = sentinel.master_for(
+                master_name, password=password, decode_responses=True,
+                # pub/sub блокируется надолго — socket_timeout=None
+                socket_timeout=None,
+            )
+            client.ping()  # форсируем разрешение master
+            return client.pubsub()
+
+        # Single-node режим (dev/docker-compose)
+        client = _redis.Redis(
             host=os.getenv('REDIS_HOST', 'localhost'),
             port=int(os.getenv('REDIS_PORT', '6379')),
-            password=os.getenv('REDIS_PASSWORD') or None,
+            password=password,
             decode_responses=True,
             socket_connect_timeout=2,
-            # socket_timeout НЕ задаём — иначе get_message(timeout=1)
-            # тоже будет падать раньше времени.
+            socket_timeout=None,
         )
-        pubsub = pubsub_client.pubsub()
-        pubsub.subscribe('thresholds:changed')
-        logger.info("Thresholds listener запущен (channel=thresholds:changed)")
-    except Exception as e:
-        logger.error("Thresholds listener init failed: %s", e, exc_info=True)
-        return
+        return client.pubsub()
 
     while True:
+        pubsub = None
         try:
-            # timeout=1 — мягкий поллинг, чтобы цикл просыпался и мог логировать
-            # при желании. get_message() на таймауте возвращает None, не бросает.
-            msg = pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if msg and msg.get('type') == 'message':
-                global THRESHOLDS
-                THRESHOLDS = load_thresholds()
-                logger.info("THRESHOLDS reloaded: param=%s", msg.get('data'))
+            pubsub = _connect()
+            pubsub.subscribe('thresholds:changed')
+            logger.info("Thresholds listener подключён (channel=thresholds:changed)")
         except Exception as e:
-            logger.error("Thresholds listener error: %s", e, exc_info=True)
-            time.sleep(1)
+            logger.error("Thresholds listener init failed: %s", e, exc_info=True)
+            time.sleep(5)
+            continue
+
+        try:
+            while True:
+                msg = pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0
+                )
+                if msg and msg.get('type') == 'message':
+                    global THRESHOLDS
+                    THRESHOLDS = load_thresholds()
+                    logger.info("THRESHOLDS reloaded: param=%s", msg.get('data'))
+        except Exception as e:
+            logger.warning("Thresholds listener error, reconnecting: %s", e)
+            try:
+                pubsub.close()
+            except Exception:
+                pass
+            time.sleep(2)
+            continue
 
 
 _thread = threading.Thread(target=_thresholds_listener, daemon=True, name="thresholds-listener")

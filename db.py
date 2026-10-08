@@ -125,18 +125,54 @@ class Database:
         self._init_db()
 
         # Redis
+        # Два режима:
+        #   1. Sentinel (prod/K8s): env REDIS_SENTINEL_HOSTS=host1,host2,...
+        #      redis-py сам находит master, переразрешает при failover.
+        #   2. Single-node (dev/docker-compose): env REDIS_HOST/REDIS_PORT.
         self.cache_ttl = int(os.getenv('REDIS_CACHE_TTL', '30'))
+        redis_password = os.getenv('REDIS_PASSWORD') or None
+        redis_sentinel_hosts = os.getenv('REDIS_SENTINEL_HOSTS', '').strip()
+
         try:
-            self.redis_client = redis.Redis(
-                host=os.getenv('REDIS_HOST', 'localhost'),
-                port=int(os.getenv('REDIS_PORT', '6379')),
-                password=os.getenv('REDIS_PASSWORD') or None,
-                decode_responses=True,
-                socket_connect_timeout=2,
-                socket_timeout=2
-            )
-            self.redis_client.ping()
-            logger.info("✅ Redis подключён")
+            if redis_sentinel_hosts:
+                from redis.sentinel import Sentinel
+                sentinel_port = int(os.getenv('REDIS_SENTINEL_PORT', '26379'))
+                master_name = os.getenv('REDIS_MASTER_NAME', 'mymaster')
+                hosts = [
+                    (h.strip(), sentinel_port)
+                    for h in redis_sentinel_hosts.split(',')
+                    if h.strip()
+                ]
+                sentinel = Sentinel(
+                    hosts,
+                    password=redis_password,
+                    socket_connect_timeout=2,
+                    socket_timeout=2,
+                )
+                # master_for возвращает Redis-клиент, который резолвит master
+                # лениво. ping() форсирует разрешение и проверяет связь.
+                self.redis_client = sentinel.master_for(
+                    master_name,
+                    password=redis_password,
+                    decode_responses=True,
+                    socket_timeout=2,
+                )
+                self.redis_client.ping()
+                logger.info(
+                    f"✅ Redis Sentinel подключён "
+                    f"(master={master_name}, hosts={redis_sentinel_hosts})"
+                )
+            else:
+                self.redis_client = redis.Redis(
+                    host=os.getenv('REDIS_HOST', 'localhost'),
+                    port=int(os.getenv('REDIS_PORT', '6379')),
+                    password=redis_password,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2,
+                )
+                self.redis_client.ping()
+                logger.info("✅ Redis подключён (single-node)")
         except Exception as e:
             logger.warning(f"⚠️ Redis недоступен, кэширование отключено: {e}")
             self.redis_client = None
