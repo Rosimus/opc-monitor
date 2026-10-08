@@ -198,10 +198,10 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Waiting for web rollout..."
-          kubectl rollout status deployment/web -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/web -n ${{ env.NAMESPACE }} --timeout=8m
 
           Write-Host "Waiting for client rollout..."
-          kubectl rollout status deployment/client -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/client -n ${{ env.NAMESPACE }} --timeout=8m
 
       - name: Verify
         shell: powershell

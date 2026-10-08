@@ -48,7 +48,7 @@ spec:
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
-          command: ["sh", "-c", "until nc -z postgres 5432; do echo waiting-for-postgres; sleep 2; done"]
+          command: ["sh", "-c", "until nc -z {{ .Values.postgres.clusterName }}-rw 5432; do echo waiting-for-postgres; sleep 2; done"]
           resources:
             requests:
               cpu: "10m"
