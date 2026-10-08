@@ -77,6 +77,9 @@ redis:
   enabled: true
   # RedisFailover CR (Spotahome operator) — 3 redis + 3 sentinel.
   failoverName: opc-redis
+  # Имя master в Sentinel. Spotahome жёстко регистрирует master под
+  # "mymaster" независимо от имени CR — это не опечатка, а их дизайн.
+  masterName: mymaster
   replicas: 3
   storage: 1Gi
   storageClassName: standard

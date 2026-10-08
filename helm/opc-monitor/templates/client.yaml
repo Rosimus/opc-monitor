@@ -97,9 +97,9 @@ spec:
             - name: REDIS_SENTINEL_PORT
               value: "26379"
             - name: REDIS_MASTER_NAME
-              value: {{ .Values.redis.failoverName | quote }}
+              value: {{ .Values.redis.masterName | default "mymaster" | quote }}
             - name: REDIS_URL
-              value: "redis+sentinel://rfs-{{ .Values.redis.failoverName }}:26379/{{ .Values.redis.failoverName }}/0"
+              value: "redis+sentinel://rfs-{{ .Values.redis.failoverName }}:26379/{{ .Values.redis.masterName | default "mymaster" }}/0"
             - name: EMAIL_PASSWORD
               valueFrom:
                 secretKeyRef:
