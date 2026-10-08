@@ -1,0 +1,47 @@
+{{- if .Values.postgres.enabled }}
+# ============================================================
+# PostgreSQL Cluster (CloudNativePG).
+#
+# Создаёт:
+#   - StatefulSet opc-postgres-1/2/3 (1 primary + 2 replica)
+#   - Services: opc-postgres-rw, opc-postgres-ro, opc-postgres-r
+#   - Secret opc-postgres-app (создаётся нами отдельно; см. secret.yaml)
+#
+# Приложение подключается к opc-postgres-rw:5432 — CNPG
+# автоматически переключает этот Service на текущий primary при failover.
+#
+# Требует установленного оператора (namespace cnpg-system) —
+# шаг "Ensure cnpg-operator installed" в cd.yml.
+# ============================================================
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgres.clusterName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opc-monitor.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgres.instances }}
+  imageName: {{ .Values.postgres.imageName | quote }}
+
+  storage:
+    size: {{ .Values.postgres.storage }}
+    storageClass: {{ .Values.postgres.storageClassName }}
+
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+
+  # Bootstrap: создать БД и владельца при первой инициализации.
+  # Учётные данные берутся из Secret opc-postgres-app (создаётся
+  # в templates/secret.yaml вместе с opc-secrets).
+  bootstrap:
+    initdb:
+      database: {{ .Values.secrets.postgresDb | quote }}
+      owner: {{ .Values.secrets.postgresUser | quote }}
+      secret:
+        name: opc-postgres-app
+
+  postgresql:
+    parameters:
+      {{- toYaml .Values.postgres.parameters | nindent 6 }}
+{{- end }}

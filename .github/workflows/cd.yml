@@ -94,6 +94,27 @@ jobs:
           out.write_text(yaml.safe_dump({'certs': certs}), encoding='utf-8')
           print(f'Rendered {out}')
           "@
+      - name: Ensure cnpg-operator installed
+        shell: powershell
+        run: |
+          # Проверяем CRD — если есть, оператор уже установлен
+          $crd = kubectl get crd clusters.postgresql.cnpg.io --ignore-not-found 2>$null
+          if ($crd) {
+            Write-Host "CNPG operator CRD already installed"
+            exit 0
+          }
+
+          Write-Host "Installing CloudNativePG operator..."
+          helm repo add cnpg https://cloudnative-pg.github.io/charts 2>$null
+          helm repo update cnpg
+
+          helm upgrade --install cnpg `
+            --namespace cnpg-system `
+            --create-namespace `
+            cnpg/cloudnative-pg `
+            --wait --timeout 5m
+
+          Write-Host "CloudNativePG operator installed"
       - name: Ensure redis-operator installed
         shell: powershell
         run: |

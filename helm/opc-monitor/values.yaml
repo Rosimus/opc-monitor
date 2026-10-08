@@ -60,18 +60,24 @@ server:
 
 postgres:
   enabled: true
-  image: postgres:15
-  storage: 10Gi
+  # CloudNativePG Cluster
+  clusterName: opc-postgres
+  instances: 3
+  storage: 1Gi
   storageClassName: standard
+  # Образ CNPG. Если убрать imageName — оператор возьмёт дефолт из
+  # clusterImageCatalog. Явно фиксируем для воспроизводимости.
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.6
   resources:
     requests:
-      ephemeral-storage: "100Mi"
       memory: "256Mi"
       cpu: "250m"
     limits:
-      ephemeral-storage: "500Mi"
       memory: "512Mi"
       cpu: "500m"
+  parameters:
+    max_connections: "100"
+    shared_buffers: "128MB"
 
 redis:
   enabled: true

@@ -88,8 +88,11 @@ spec:
               value: "1"
             - name: TZ
               value: {{ .Values.global.timezone | quote }}
+            # CloudNativePG создаёт сервис <cluster>-rw, который всегда
+            # указывает на текущий primary. При failover оператор
+            # переключит endpoint без изменения манифеста.
             - name: POSTGRES_HOST
-              value: "postgres"
+              value: "{{ .Values.postgres.clusterName }}-rw"
             - name: POSTGRES_PORT
               value: "5432"
             - name: REDIS_SENTINEL_HOSTS

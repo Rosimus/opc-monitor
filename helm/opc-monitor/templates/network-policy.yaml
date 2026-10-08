@@ -102,7 +102,8 @@ spec:
         - {port: 4840, protocol: TCP}
     - to:
         - podSelector:
-            matchLabels: {app: postgres}
+            matchLabels:
+              cnpg.io/cluster: {{ .Values.postgres.clusterName }}
       ports:
         - {port: 5432, protocol: TCP}
     - to:
@@ -164,7 +165,8 @@ spec:
   egress:
     - to:
         - podSelector:
-            matchLabels: {app: postgres}
+            matchLabels:
+              cnpg.io/cluster: {{ .Values.postgres.clusterName }}
       ports:
         - {port: 5432, protocol: TCP}
     - to:
@@ -188,7 +190,9 @@ spec:
         - {port: 4317, protocol: TCP}
 
 ---
-# -------- 6. PostgreSQL --------
+# -------- 6. PostgreSQL (CloudNativePG) --------
+# Под'ы CNPG несут метку cnpg.io/cluster=<clusterName>.
+# Селектор по этой метке покрывает и primary, и replica.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -196,7 +200,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
-    matchLabels: {app: postgres}
+    matchLabels:
+      cnpg.io/cluster: {{ .Values.postgres.clusterName }}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -204,6 +209,13 @@ spec:
             matchLabels: {app: client}
         - podSelector:
             matchLabels: {app: web}
+      ports:
+        - {port: 5432, protocol: TCP}
+    # Репликация между instance'ами CNPG + служебные порты оператора
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ .Values.postgres.clusterName }}
       ports:
         - {port: 5432, protocol: TCP}
 
