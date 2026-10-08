@@ -4,6 +4,11 @@ OPC UA PLC Simulator.
 Эмулирует промышленный контроллер с 8 параметрами. Генерирует реалистичные
 значения через random walk с возвратом к базовому значению, периодически
 воспроизводит аварийные сценарии.
+
+Безопасность:
+    OPC_SECURITY_MODE=None            — без шифрования (dev/тесты)
+    OPC_SECURITY_MODE=Sign            — подпись без шифрования
+    OPC_SECURITY_MODE=SignAndEncrypt  — подпись + шифрование (prod)
 """
 import logging
 import math
@@ -15,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
-from opcua import Server
+from opcua import Server, ua
 
 
 # ============================================
@@ -83,9 +88,19 @@ class PLCSimulator:
         # но если в advertise_url подставить 0.0.0.0, клиент с другой машины
         # попытается подключиться к самому себе. Поэтому bind и advertise
         # разделены: bind — неявный (0.0.0.0), advertise — снаружи задаётся.
+        # Default — localhost, чтобы сервер стартовал на dev-машине без DNS.
+        # В Docker/K8s передаём OPC_ADVERTISE_URL=opc.tcp://server:4840 (см. compose/helm).
         self.advertise_url = advertise_url or os.getenv(
-            "OPC_ADVERTISE_URL", "opc.tcp://server:4840"
+            "OPC_ADVERTISE_URL", "opc.tcp://localhost:4840"
         )
+
+        # --- Безопасность OPC UA ---
+        # Режим: None | Sign | SignAndEncrypt. Регистр нормализуем.
+        self.security_mode = os.getenv("OPC_SECURITY_MODE", "None").strip()
+        self.cert_dir = os.getenv("OPC_CERT_DIR", "/certs")
+        self.opc_user = os.getenv("OPC_USER", "")
+        self.opc_password = os.getenv("OPC_PASSWORD", "")
+
         self.server: Optional[Server] = None
         self.variables: Dict[str, object] = {}
         self.alarm_state: Dict[str, int] = {}
@@ -101,11 +116,86 @@ class PLCSimulator:
         logger.info(f"Получен сигнал {signum}, останавливаюсь...")
         self.running = False
 
+    def _setup_security(self) -> None:
+        """
+        Настраивает безопасность OPC UA.
+
+        Режимы через env OPC_SECURITY_MODE:
+          None            — без шифрования (только для dev/тестов)
+          Sign            — подпись, без шифрования
+          SignAndEncrypt  — подпись + шифрование (prod, рекомендовано)
+
+        В режимах Sign* обязательны:
+          OPC_CERT_DIR              — путь к server_cert.pem / server_key.pem
+          OPC_USER, OPC_PASSWORD    — учётные данные пользователя OPC UA
+        """
+        if self.security_mode == "None":
+            logger.warning(
+                "⚠️ OPC UA security mode = None. Только для dev! "
+                "В продакшене задайте OPC_SECURITY_MODE=SignAndEncrypt"
+            )
+            # Явно говорим серверу: только NoSecurity.
+            # Без этого python-opcua 0.98 пытается анонсировать Basic256Sha256
+            # и пишет в лог "Endpoints other than open requested but private
+            # key and certificate are not set".
+            self.server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
+            return
+
+        if self.security_mode not in ("Sign", "SignAndEncrypt"):
+            raise RuntimeError(
+                f"Недопустимый OPC_SECURITY_MODE={self.security_mode!r}. "
+                "Допустимо: None | Sign | SignAndEncrypt"
+            )
+
+        if not self.opc_user or not self.opc_password:
+            raise RuntimeError(
+                "OPC_SECURITY_MODE задан, но OPC_USER / OPC_PASSWORD не установлены"
+            )
+
+        cert_path = os.path.join(self.cert_dir, "server_cert.pem")
+        key_path = os.path.join(self.cert_dir, "server_key.pem")
+        for p in (cert_path, key_path):
+            if not os.path.exists(p):
+                raise RuntimeError(f"Сертификат не найден: {p}")
+
+        # Загружаем сертификат и приватный ключ сервера
+        self.server.load_certificate(cert_path)
+        self.server.load_private_key(key_path)
+
+        # Выбираем только современные политики (Basic256Sha256).
+        # Basic128Rsa15 и Basic256 — устаревшие, отключены намеренно.
+        if self.security_mode == "SignAndEncrypt":
+            policies = [ua.SecurityPolicyType.Basic256Sha256_SignAndEncrypt]
+        else:  # "Sign"
+            policies = [ua.SecurityPolicyType.Basic256Sha256_Sign]
+        self.server.set_security_policy(policies)
+
+        # UserManager: колбэк (isession, username, password) -> bool
+        # В opcua==0.98 (python-opcua/freeopcua) user_manager — это именно
+        # атрибут, которому присваивается функция, а не инстанс класса.
+        expected_user = self.opc_user
+        expected_pw = self.opc_password
+
+        def _user_manager(isession, username, password):
+            ok = (username == expected_user and password == expected_pw)
+            logger.info(f"OPC UA login attempt: user={username!r} ok={ok}")
+            return ok
+
+        self.server.user_manager = _user_manager
+
+        logger.info(
+            f"🔐 OPC UA security enabled: mode={self.security_mode}, "
+            f"user={self.opc_user}, cert_dir={self.cert_dir}"
+        )
+
     def _setup_server(self) -> None:
         """Создаёт OPC UA-сервер и регистрирует переменные."""
         self.server = Server()
         self.server.set_endpoint(self.advertise_url)
         self.server.set_server_name("PLC Simulator")
+
+        # Безопасность настраиваем ДО регистрации нод.
+        self._setup_security()
 
         idx = self.server.register_namespace("PLC")
         objects = self.server.get_objects_node()
@@ -222,7 +312,7 @@ class PLCSimulator:
 # Точка входа
 # ============================================
 def main() -> int:
-    advertise_url = os.getenv("OPC_ADVERTISE_URL", "opc.tcp://server:4840")
+    advertise_url = os.getenv("OPC_ADVERTISE_URL", "opc.tcp://localhost:4840")
     simulator = PLCSimulator(advertise_url=advertise_url)
 
     try:
