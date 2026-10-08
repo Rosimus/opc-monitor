@@ -175,6 +175,6 @@ spec:
         - name: certs
           secret:
             secretName: opc-certs
-            defaultMode: 0400
+            defaultMode: 0440
         {{- end }}
 {{- end }}
