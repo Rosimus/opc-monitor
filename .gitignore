@@ -132,6 +132,9 @@ helm/opc-monitor/certs-secrets.yaml
 helm/opc-monitor/values-secrets.yaml
 !helm/opc-monitor/values-secrets.yaml.example
 
+helm/opc-monitor/certs-secrets.yaml
+!helm/opc-monitor/certs-secrets.yaml.example
+
 # ============================================
 # Temporary curl output / scratch files
 # ============================================

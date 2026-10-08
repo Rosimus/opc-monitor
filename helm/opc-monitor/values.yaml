@@ -138,11 +138,40 @@ secrets:
   jwtSecretKey: change_me_jwt_secret
   emailPassword: ""
   grafanaPassword: admin
+  opcPassword: change_me_opc_password 
   telegramBotToken: "placeholder"
-  telegramChatId: "0"
+  telegramChatId: "0"  
 
+# ============================================================
+# OPC UA Security
+# ============================================================
+# mode:
+#   "None"           — без шифрования (dev/CI)
+#   "Sign"           — подпись без шифрования
+#   "SignAndEncrypt" — подпись + шифрование (prod, рекомендовано)
+#
+# При mode != "None" требуется Secret opc-certs, который создаётся
+# из значений ниже. Заполняются через certs-secrets.yaml (не в git):
+#   helm upgrade --install ... -f certs-secrets.yaml
+opcSecurity:
+  mode: "None"
+  user: operator
+  # пароль — в secrets.opcPassword
+
+certs:
+  # Base64-encoded PEM-файлы. Оставьте пустыми для mode=None.
+  # Заполняются в certs-secrets.yaml (не коммитится).
+  caCert: ""
+  serverCert: ""
+  serverKey: ""
+  clientCert: ""
+  clientKey: ""
+  
 opcConfig:
   url: "opc.tcp://server:4840"
+  # URL, который OPC UA-сервер анонсирует клиентам в GetEndpoints.
+  # Для K8s — ClusterIP-сервис (server). Для внешнего доступа — NodePort/LB.
+  advertiseUrl: "opc.tcp://server:4840"
   nodePlc: "2:PLC"
   params:
     - id: temperature

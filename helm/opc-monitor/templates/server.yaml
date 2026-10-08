@@ -61,11 +61,30 @@ spec:
               value: "1"
             - name: TZ
               value: {{ .Values.global.timezone | quote }}
+            # OPC UA security
+            - name: OPC_ADVERTISE_URL
+              value: {{ .Values.opcConfig.advertiseUrl | default "opc.tcp://server:4840" | quote }}
+            - name: OPC_SECURITY_MODE
+              value: {{ .Values.opcSecurity.mode | default "None" | quote }}
+            - name: OPC_CERT_DIR
+              value: "/certs"
+            - name: OPC_USER
+              value: {{ .Values.opcSecurity.user | default "operator" | quote }}
+            - name: OPC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opc-secrets
+                  key: OPC_PASSWORD
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if ne (.Values.opcSecurity.mode | default "None") "None" }}
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+            {{- end }}
           livenessProbe:
             tcpSocket:
               port: 4840
@@ -81,4 +100,10 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if ne (.Values.opcSecurity.mode | default "None") "None" }}
+        - name: certs
+          secret:
+            secretName: opc-certs
+            defaultMode: 0400
+        {{- end }}
 {{- end }}

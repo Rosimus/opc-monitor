@@ -8,11 +8,15 @@ web:
     minReplicas: 2
     maxReplicas: 5
     targetCPU: 70
-  # For load testing (k6). Default in values.yaml: "1000 per hour, 200 per minute".
   ratelimitDefault: "100000 per minute"
 
 vpa:
   enabled: true
+
+# OPC UA Security — включаем SignAndEncrypt в проде.
+# Требует certs-secrets.yaml с base64-сертификатами.
+opcSecurity:
+  mode: "SignAndEncrypt"
 
 ingress:
   enabled: false
