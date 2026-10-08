@@ -9,6 +9,11 @@ OPC UA PLC Simulator.
     OPC_SECURITY_MODE=None            — без шифрования (dev/тесты)
     OPC_SECURITY_MODE=Sign            — подпись без шифрования
     OPC_SECURITY_MODE=SignAndEncrypt  — подпись + шифрование (prod)
+
+Соответствие IEC 62541-100:
+    Nameplate        — Manufacturer, Model, SerialNumber, revisions
+    DeviceHealth     — Int32 enum: NORMAL=0, FAILURE=1, CHECK_FUNCTION=2,
+                       OFF_SPEC=3, MAINTENANCE_REQUIRED=4
 """
 import logging
 import math
@@ -42,6 +47,18 @@ logging.getLogger("opcua.server.binary_server_asyncio").setLevel(logging.WARNING
 
 
 # ============================================
+# IEC 62541-100: DeviceHealth enumeration
+# ============================================
+class DeviceHealth:
+    """Значения DeviceHealthEnumeration (IEC 62541-100)."""
+    NORMAL = 0
+    FAILURE = 1
+    CHECK_FUNCTION = 2
+    OFF_SPEC = 3
+    MAINTENANCE_REQUIRED = 4
+
+
+# ============================================
 # Конфигурация параметра
 # ============================================
 @dataclass
@@ -65,6 +82,16 @@ class ParamConfig:
 class PLCSimulator:
     """Симулятор ПЛК с OPC UA-сервером."""
 
+    # Паспортные данные (IEC 62541-100 Nameplate)
+    NAMEPLATE: Dict[str, str] = {
+        "Manufacturer":       "Rosimus Sim",
+        "Model":              "PLC-Sim-3000",
+        "SerialNumber":       "SN-2024-0001",
+        "HardwareRevision":   "1.0",
+        "SoftwareRevision":   "1.2.0",
+        "DeviceRevision":     "A",
+    }
+
     # Конфигурация параметров
     PARAMS: Dict[str, ParamConfig] = {
         "Temperature": ParamConfig("Temperature", 25.0, 15.0, 35.0, 0.3, 34.0),
@@ -77,17 +104,10 @@ class PLCSimulator:
         "Frequency":   ParamConfig("Frequency", 50.0, 45.0, 55.0, 0.3, 54.0),
     }
 
-    # Вероятность запуска аварии за один цикл
     ALARM_PROBABILITY = 0.01
-    # Вероятность каскадной аварии (второй параметр одновременно)
     CASCADE_PROBABILITY = 0.3
 
     def __init__(self, advertise_url: Optional[str] = None):
-        # advertise_url — URL, который OPC UA-сервер вернёт клиентам в ответе
-        # GetEndpoints. Важно: python-opcua самостоятельно слушает 0.0.0.0:4840,
-        # но если в advertise_url подставить 0.0.0.0, клиент с другой машины
-        # попытается подключиться к самому себе. Поэтому bind и advertise
-        # разделены: bind — неявный (0.0.0.0), advertise — снаружи задаётся.
         self.advertise_url = advertise_url or os.getenv(
             "OPC_ADVERTISE_URL", "opc.tcp://localhost:4840"
         )
@@ -101,10 +121,11 @@ class PLCSimulator:
         self.server: Optional[Server] = None
         self.variables: Dict[str, object] = {}
         self.alarm_state: Dict[str, int] = {}
+        # Ссылки на стандартные узлы IEC 62541-100
+        self.health_node = None
         self.tick = 0
         self.running = False
 
-        # Настройка graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
@@ -114,24 +135,12 @@ class PLCSimulator:
         self.running = False
 
     def _setup_security(self) -> None:
-        """
-        Настраивает безопасность OPC UA.
-
-        Режимы через env OPC_SECURITY_MODE:
-          None            — без шифрования (только для dev/тестов)
-          Sign            — подпись, без шифрования
-          SignAndEncrypt  — подпись + шифрование (prod, рекомендовано)
-
-        В режимах Sign* обязательны:
-          OPC_CERT_DIR              — путь к server_cert.pem / server_key.pem
-          OPC_USER, OPC_PASSWORD    — учётные данные пользователя OPC UA
-        """
+        """Настраивает безопасность OPC UA (см. docstring модуля)."""
         if self.security_mode == "None":
             logger.warning(
                 "⚠️ OPC UA security mode = None. Только для dev! "
                 "В продакшене задайте OPC_SECURITY_MODE=SignAndEncrypt"
             )
-            # Явно говорим серверу: только NoSecurity.
             self.server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
             return
 
@@ -152,14 +161,12 @@ class PLCSimulator:
             if not os.path.exists(p):
                 raise RuntimeError(f"Сертификат не найден: {p}")
 
-        # Загружаем сертификат и приватный ключ сервера
         self.server.load_certificate(cert_path)
         self.server.load_private_key(key_path)
 
-        # Выбираем только современные политики (Basic256Sha256).
         if self.security_mode == "SignAndEncrypt":
             policies = [ua.SecurityPolicyType.Basic256Sha256_SignAndEncrypt]
-        else:  # "Sign"
+        else:
             policies = [ua.SecurityPolicyType.Basic256Sha256_Sign]
         self.server.set_security_policy(policies)
 
@@ -173,13 +180,49 @@ class PLCSimulator:
             logger.info(f"OPC UA login attempt: user={username!r} ok={ok}")
             return ok
 
-        # Устанавливаем пользовательскую функцию в существующий UserManager
         self.server.user_manager.set_user_manager(_user_manager)
 
         logger.info(
             f"🔐 OPC UA security enabled: mode={self.security_mode}, "
             f"user={self.opc_user}, cert_dir={self.cert_dir}"
         )
+
+    def _add_nameplate(self, plc_node, idx: int) -> None:
+        """
+        IEC 62541-100 Nameplate: паспортные данные устройства.
+
+        Промышленные OPC UA-клиенты (Ignition, KEPServerEX, WinCC)
+        ожидают увидеть эти узлы под объектом устройства.
+        """
+        nameplate = plc_node.add_object(idx, "Nameplate")
+        for key, value in self.NAMEPLATE.items():
+            prop = nameplate.add_property(idx, key, value)
+            prop.set_writable(False)
+        logger.info(
+            f"📋 Nameplate добавлен: {len(self.NAMEPLATE)} свойств "
+            f"({', '.join(self.NAMEPLATE.keys())})"
+        )
+
+    def _add_device_health(self, plc_node, idx: int) -> None:
+        """
+        IEC 62541-100 DeviceHealth: состояние устройства.
+
+        Int32 enum:
+            NORMAL               = 0
+            FAILURE              = 1
+            CHECK_FUNCTION       = 2
+            OFF_SPEC             = 3
+            MAINTENANCE_REQUIRED = 4
+
+        Обновляется в _update_all_params() на каждом цикле.
+        """
+        self.health_node = plc_node.add_variable(
+            idx, "DeviceHealth",
+            DeviceHealth.NORMAL,
+            varianttype=ua.VariantType.Int32,
+        )
+        self.health_node.set_writable(False)
+        logger.info("🩺 DeviceHealth добавлен (IEC 62541-100)")
 
     def _setup_server(self) -> None:
         """Создаёт OPC UA-сервер и регистрирует переменные."""
@@ -194,6 +237,11 @@ class PLCSimulator:
         objects = self.server.get_objects_node()
         plc = objects.add_object(idx, "PLC")
 
+        # IEC 62541-100: Nameplate + DeviceHealth
+        self._add_nameplate(plc, idx)
+        self._add_device_health(plc, idx)
+
+        # Технологические параметры
         for name, cfg in self.PARAMS.items():
             var = plc.add_variable(idx, name, cfg.current)
             var.set_writable(True)
@@ -243,7 +291,7 @@ class PLCSimulator:
             time.sleep(2)
 
     def _update_all_params(self) -> None:
-        """Обновляет все параметры и записывает в OPC UA."""
+        """Обновляет все параметры, DeviceHealth и пишет в OPC UA."""
         self.tick += 1
         self._maybe_trigger_alarm()
 
@@ -261,6 +309,18 @@ class PLCSimulator:
                 self.variables[name].set_value(value)
             except Exception as e:
                 logger.error(f"Ошибка обновления параметра {name}: {e}")
+
+        # IEC 62541-100: обновляем DeviceHealth на каждом цикле.
+        # FAILURE (1) если есть активная авария, иначе NORMAL (0).
+        if self.health_node is not None:
+            try:
+                new_health = (
+                    DeviceHealth.FAILURE if self.alarm_state
+                    else DeviceHealth.NORMAL
+                )
+                self.health_node.set_value(new_health)
+            except Exception as e:
+                logger.error(f"Ошибка обновления DeviceHealth: {e}")
 
     # ---------- Логика генерации ----------
     def _smooth_step(self, name: str, cfg: ParamConfig) -> float:
@@ -292,7 +352,6 @@ class PLCSimulator:
         self.alarm_state[param] = duration
         logger.warning(f"🚨 АВАРИЯ: {param} ({duration} циклов)")
 
-        # Каскадная авария
         if random.random() < self.CASCADE_PROBABILITY:
             other = random.choice([p for p in self.PARAMS if p != param])
             duration2 = random.randint(8, 15)
