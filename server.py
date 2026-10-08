@@ -88,14 +88,11 @@ class PLCSimulator:
         # но если в advertise_url подставить 0.0.0.0, клиент с другой машины
         # попытается подключиться к самому себе. Поэтому bind и advertise
         # разделены: bind — неявный (0.0.0.0), advertise — снаружи задаётся.
-        # Default — localhost, чтобы сервер стартовал на dev-машине без DNS.
-        # В Docker/K8s передаём OPC_ADVERTISE_URL=opc.tcp://server:4840 (см. compose/helm).
         self.advertise_url = advertise_url or os.getenv(
             "OPC_ADVERTISE_URL", "opc.tcp://localhost:4840"
         )
 
         # --- Безопасность OPC UA ---
-        # Режим: None | Sign | SignAndEncrypt. Регистр нормализуем.
         self.security_mode = os.getenv("OPC_SECURITY_MODE", "None").strip()
         self.cert_dir = os.getenv("OPC_CERT_DIR", "/certs")
         self.opc_user = os.getenv("OPC_USER", "")
@@ -135,9 +132,6 @@ class PLCSimulator:
                 "В продакшене задайте OPC_SECURITY_MODE=SignAndEncrypt"
             )
             # Явно говорим серверу: только NoSecurity.
-            # Без этого python-opcua 0.98 пытается анонсировать Basic256Sha256
-            # и пишет в лог "Endpoints other than open requested but private
-            # key and certificate are not set".
             self.server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
             return
 
@@ -163,16 +157,14 @@ class PLCSimulator:
         self.server.load_private_key(key_path)
 
         # Выбираем только современные политики (Basic256Sha256).
-        # Basic128Rsa15 и Basic256 — устаревшие, отключены намеренно.
         if self.security_mode == "SignAndEncrypt":
             policies = [ua.SecurityPolicyType.Basic256Sha256_SignAndEncrypt]
         else:  # "Sign"
             policies = [ua.SecurityPolicyType.Basic256Sha256_Sign]
         self.server.set_security_policy(policies)
 
-        # UserManager: колбэк (isession, username, password) -> bool
-        # В opcua==0.98 (python-opcua/freeopcua) user_manager — это именно
-        # атрибут, которому присваивается функция, а не инстанс класса.
+        # UserManager: в opcua==0.98 user_manager — это объект UserManager
+        # с методом set_user_manager(), а не функция-колбэк.
         expected_user = self.opc_user
         expected_pw = self.opc_password
 
@@ -181,7 +173,8 @@ class PLCSimulator:
             logger.info(f"OPC UA login attempt: user={username!r} ok={ok}")
             return ok
 
-        self.server.user_manager = _user_manager
+        # Устанавливаем пользовательскую функцию в существующий UserManager
+        self.server.user_manager.set_user_manager(_user_manager)
 
         logger.info(
             f"🔐 OPC UA security enabled: mode={self.security_mode}, "
@@ -246,7 +239,6 @@ class PLCSimulator:
             try:
                 self._update_all_params()
             except Exception as e:
-                # Не падаем при единичной ошибке, логируем и продолжаем
                 logger.exception(f"Ошибка в цикле обновления: {e}")
             time.sleep(2)
 
