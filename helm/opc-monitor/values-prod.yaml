@@ -16,7 +16,7 @@ vpa:
 # OPC UA Security — включаем SignAndEncrypt в проде.
 # Требует certs-secrets.yaml с base64-сертификатами.
 opcSecurity:
-  mode: "None"
+  mode: "SignAndEncrypt"
 
 ingress:
   enabled: false

@@ -67,9 +67,26 @@ jobs:
           Write-Host "Loading into Minikube..."
           minikube image load $image
 
+      - name: Render certs-secrets.yaml
+        shell: powershell
+        run: |
+          $certFile = Join-Path $env:RUNNER_TEMP "certs-secrets.yaml"
+          @"
+          certs:
+            caCert: "${{ secrets.OPC_CA_CERT }}"
+            serverCert: "${{ secrets.OPC_SERVER_CERT }}"
+            serverKey: "${{ secrets.OPC_SERVER_KEY }}"
+            clientCert: "${{ secrets.OPC_CLIENT_CERT }}"
+            clientKey: "${{ secrets.OPC_CLIENT_KEY }}"
+          "@ | Out-File -FilePath $certFile -Encoding utf8
+          Write-Host "Rendered certs-secrets.yaml to $certFile"
+
       - name: Deploy with Helm
         shell: powershell
         run: |
+          # $certFile объявляем заново: переменные между шагами не сохраняются
+          $certFile = Join-Path $env:RUNNER_TEMP "certs-secrets.yaml"
+
           $sha = "${{ github.event.workflow_run.head_sha }}"
           if (-not $sha) { $sha = "${{ github.sha }}" }
           $shortSha = $sha.Substring(0, 7)
@@ -90,18 +107,29 @@ jobs:
           $grafanaPassword = "${{ secrets.GRAFANA_PASSWORD }}"
           if (-not $grafanaPassword) { $grafanaPassword = "admin" }
 
+          $opcPassword = "${{ secrets.OPC_PASSWORD }}"
+          if (-not $opcPassword) { $opcPassword = "change_me_opc_password" }
+
           helm upgrade --install ${{ env.RELEASE_NAME }} ./helm/opc-monitor `
             --namespace ${{ env.NAMESPACE }} `
             --create-namespace `
             --values ./helm/opc-monitor/values-prod.yaml `
+            --values $certFile `
             --set image.tag=$imageTag `
             --set secrets.postgresPassword=$postgresPassword `
             --set secrets.jwtSecretKey=$jwtSecretKey `
             --set secrets.adminPassword=$adminPassword `
             --set secrets.grafanaPassword=$grafanaPassword `
+            --set secrets.opcPassword=$opcPassword `
             --timeout 2m
 
           Write-Host "Helm deploy complete"
+
+          # Не оставляем сертификаты на self-hosted runner между запусками
+          if (Test-Path $certFile) {
+            Remove-Item $certFile -Force
+            Write-Host "Removed temporary $certFile"
+          }
 
       - name: Wait for rollout
         shell: powershell
