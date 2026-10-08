@@ -69,17 +69,31 @@ jobs:
 
       - name: Render certs-secrets.yaml
         shell: powershell
+        env:
+          CERT_CA: ${{ secrets.OPC_CA_CERT }}
+          CERT_SERVER: ${{ secrets.OPC_SERVER_CERT }}
+          CERT_SERVER_KEY: ${{ secrets.OPC_SERVER_KEY }}
+          CERT_CLIENT: ${{ secrets.OPC_CLIENT_CERT }}
+          CERT_CLIENT_KEY: ${{ secrets.OPC_CLIENT_KEY }}
         run: |
-          $certFile = Join-Path $env:RUNNER_TEMP "certs-secrets.yaml"
-          @"
-          certs:
-            caCert: "${{ secrets.OPC_CA_CERT }}"
-            serverCert: "${{ secrets.OPC_SERVER_CERT }}"
-            serverKey: "${{ secrets.OPC_SERVER_KEY }}"
-            clientCert: "${{ secrets.OPC_CLIENT_CERT }}"
-            clientKey: "${{ secrets.OPC_CLIENT_KEY }}"
-          "@ | Out-File -FilePath $certFile -Encoding utf8
-          Write-Host "Rendered certs-secrets.yaml to $certFile"
+          python -c @"
+          import os, pathlib, yaml
+          certs = {
+              'caCert':     os.environ['CERT_CA'].strip(),
+              'serverCert': os.environ['CERT_SERVER'].strip(),
+              'serverKey':  os.environ['CERT_SERVER_KEY'].strip(),
+              'clientCert': os.environ['CERT_CLIENT'].strip(),
+              'clientKey':  os.environ['CERT_CLIENT_KEY'].strip(),
+          }
+          for k, v in certs.items():
+              if not v:
+                  raise SystemExit(f'ERROR: secret for {k} is empty')
+              if any(c in v for c in ' \t\r\n'):
+                  raise SystemExit(f'ERROR: {k} contains whitespace')
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'certs-secrets.yaml'
+          out.write_text(yaml.safe_dump({'certs': certs}), encoding='utf-8')
+          print(f'Rendered {out}')
+          "@
 
       - name: Deploy with Helm
         shell: powershell
