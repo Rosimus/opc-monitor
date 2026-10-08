@@ -108,6 +108,24 @@ terraform/.terraformrc
 terraform/terraform.rc
 
 # ============================================
+# OPC UA certificates — НЕ КОММИТИМ!
+# ============================================
+# Важно: паттерн "certs/" игнорирует саму директорию целиком,
+# и git не может восстановить файл внутри неё через "!".
+# Используем "certs/*" — игнорируется содержимое, а не сама папка.
+certs/*
+!certs/.gitkeep
+
+*.pem
+*.key
+*.crt
+*.der
+
+# Helm secrets для сертификатов
+helm/opc-monitor/certs-secrets.yaml
+!helm/opc-monitor/certs-secrets.yaml.example
+
+# ============================================
 # Helm secrets
 # ============================================
 helm/opc-monitor/values-secrets.yaml
