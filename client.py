@@ -51,6 +51,20 @@ retention_days: int = retention.get('days', 30)
 # Значение из config.yaml НЕ используется: файл может попасть в Git.
 email_password: str = os.environ.get('EMAIL_PASSWORD', '')
 
+# --- Безопасность OPC UA ---
+# Режимы:
+#   None            — без шифрования (dev/тесты)
+#   Sign            — подпись
+#   SignAndEncrypt  — подпись + шифрование (prod)
+OPC_SECURITY_MODE: str = os.getenv("OPC_SECURITY_MODE", "None").strip()
+OPC_CERT_DIR: str = os.getenv("OPC_CERT_DIR", "/certs")
+OPC_USER: str = os.getenv("OPC_USER", "")
+OPC_PASSWORD: str = os.getenv("OPC_PASSWORD", "")
+
+# URL сервера можно переопределить через env (для локальных прогонов,
+# где config.yaml содержит "opc.tcp://server:4840" — резолвится только в docker).
+OPC_URL: str = os.getenv("OPC_URL", opc_cfg['url'])
+
 # Пороги
 THRESHOLDS: Dict[str, Dict[str, float]] = {}
 for p in params_list:
@@ -61,6 +75,12 @@ for p in params_list:
     THRESHOLDS[p['id']] = th
 
 logger.info("THRESHOLDS loaded", thresholds=THRESHOLDS)
+logger.info(
+    "OPC UA security config",
+    mode=OPC_SECURITY_MODE,
+    cert_dir=OPC_CERT_DIR,
+    url=OPC_URL,
+)
 
 # БД
 db: Database = Database(params_list)
@@ -74,6 +94,55 @@ running = True
 # shutdown_event — позволяет мгновенно прервать sleep() в основном цикле,
 # не дожидаясь окончания интервала. Устанавливается из signal handler.
 shutdown_event = threading.Event()
+
+
+# --- Безопасный OPC UA клиент ---
+def _build_secure_client(url: str) -> Client:
+    """
+    Создаёт Client с настроенной безопасностью.
+
+    В режиме None — обычное подключение без шифрования (dev/CI).
+    В режимах Sign / SignAndEncrypt — Basic256Sha256 с клиентским
+    сертификатом и логином/паролем OPC UA.
+    """
+    client = Client(url)
+
+    if OPC_SECURITY_MODE == "None":
+        return client
+
+    if OPC_SECURITY_MODE not in ("Sign", "SignAndEncrypt"):
+        raise RuntimeError(
+            f"Недопустимый OPC_SECURITY_MODE={OPC_SECURITY_MODE!r}. "
+            "Допустимо: None | Sign | SignAndEncrypt"
+        )
+
+    if not OPC_USER or not OPC_PASSWORD:
+        raise RuntimeError(
+            "OPC_SECURITY_MODE задан, но OPC_USER / OPC_PASSWORD не установлены"
+        )
+
+    client_cert = os.path.join(OPC_CERT_DIR, "client_cert.pem")
+    client_key = os.path.join(OPC_CERT_DIR, "client_key.pem")
+    server_cert = os.path.join(OPC_CERT_DIR, "server_cert.pem")
+
+    missing = [p for p in (client_cert, client_key, server_cert) if not os.path.exists(p)]
+    if missing:
+        raise RuntimeError(f"OPC UA: не найдены сертификаты: {missing}")
+
+    # Формат строки: Policy,Mode,ClientCert,ClientKey,ServerCert
+    mode = "SignAndEncrypt" if OPC_SECURITY_MODE == "SignAndEncrypt" else "Sign"
+    client.set_security_string(
+        f"Basic256Sha256,{mode},{client_cert},{client_key},{server_cert}"
+    )
+
+    client.set_user(OPC_USER)
+    client.set_password(OPC_PASSWORD)
+
+    # ApplicationURI должен совпадать с SAN URI в клиентском сертификате
+    # (см. certs/generate.py: san_uri="urn:opc-monitor:client").
+    client.application_uri = "urn:opc-monitor:client"
+
+    return client
 
 
 # --- Функции отправки ---
@@ -160,7 +229,7 @@ def cleanup_worker():
 def ping_opc_server(url: str):
     while running:
         try:
-            test_client = Client(url)
+            test_client = _build_secure_client(url)
             test_client.connect()
             test_client.disconnect()
             logger.debug("OPC server available")
@@ -185,7 +254,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 # --- Запуск фоновых потоков ---
 threading.Thread(target=cleanup_worker, daemon=True).start()
-threading.Thread(target=ping_opc_server, args=(opc_cfg['url'],), daemon=True).start()
+threading.Thread(target=ping_opc_server, args=(OPC_URL,), daemon=True).start()
 
 # --- Сигнал готовности для healthcheck ---
 # Путь настраивается через env READY_FILE.
@@ -204,13 +273,13 @@ except Exception as e:
     logger.warning("Не удалось создать ready-file", path=ready_path, error=str(e))
 
 # ========== ОСНОВНОЙ ЦИКЛ ==========
-url = opc_cfg['url']
+url = OPC_URL
 
 while running:
     client: Optional[Client] = None
     try:
-        logger.info("Connecting to OPC server...")
-        client = Client(url)
+        logger.info("Connecting to OPC server...", url=url, mode=OPC_SECURITY_MODE)
+        client = _build_secure_client(url)
         client.connect()
         logger.info("Connected to OPC server")
         offline_mode = False
