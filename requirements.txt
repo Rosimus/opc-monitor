@@ -35,7 +35,7 @@ opentelemetry-sdk==1.44.0                       # было 1.24.0
 opentelemetry-exporter-otlp-proto-grpc==1.44.0  # было 1.24.0
 opentelemetry-instrumentation-flask==0.65b0     # было 0.45b0
 opentelemetry-instrumentation-sqlalchemy==0.65b0
-opentelemetry-instrumentation-requests==0.65b0
+opentelemetry-instrumentation-requests==0.66b1
 opentelemetry-instrumentation-threading==0.65b0 # добавлено (было только в системе)
 
 # === Testing ===
